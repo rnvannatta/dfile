@@ -30,8 +30,10 @@ int main() {
   }
   {
     DFILE * f = dtmpfile();
-    char * msg = "ello, Tempfiles!";
+    char * msg = "ello, Tempfiles?";
     dfwrite(msg, strlen(msg), f);
+    dungetc('M', f);
+    dfwrite("!", 1, f);
     dungetc('M', f);
     dfseek(f, 0, SEEK_SET);
     char buf[256];

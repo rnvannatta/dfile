@@ -27,7 +27,7 @@ extern DFILE * dstdin;
 extern DFILE * dstdout;
 extern DFILE * dstderr;
 
-off_t dftell(DFILE * f);
+long long int dftell(DFILE * f);
 int dfeof(DFILE * f);
 int dferror(DFILE * f);
 void dclearerror(DFILE * f);

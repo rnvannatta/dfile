@@ -206,10 +206,10 @@ static off_t dseek(DFILE * f, off_t offset, int whence) {
   }
 }
 
-off_t dftell(DFILE * f) {
+long long int dftell(DFILE * f) {
   off_t o = dseek(f, 0, SEEK_CUR);
   if(o < 0) return o;
-  return o - f->buf_cursor + f->dirty_cursor;
+  return o - f->buf_cursor - f->num_ungets + f->dirty_cursor;
 }
 
 int dfeof(DFILE * f) {
@@ -462,9 +462,17 @@ static int dfflush_impl(DFILE * f, int flushbytes) {
 }
 
 int dfflush(DFILE * f) {
-  f->num_ungets = 0;
-  if(f->dirty_cursor)
-    return dfflush_impl(f, f->dirty_cursor);
+  if(f->dirty_cursor) {
+    if(dfflush_impl(f, f->dirty_cursor) < 0)
+      return -1;
+  }
+  if(f->num_ungets) {
+    int ret = dseek(f, -f->num_ungets - f->buf_cursor, SEEK_CUR);
+    f->num_ungets = 0;
+    f->buf_cursor = 0;
+    if(ret < 0)
+      return -1;
+  }
   return 0;
 }
 
@@ -536,6 +544,10 @@ int dfwrite(const void * ptr, int ct, DFILE * f) {
   if(!(f->flags & DFILE_WRITE)) {
     f->flags |= DFILE_ERROR;
     return -1;
+  }
+  if(f->num_ungets) {
+    if(dfflush(f) < 0)
+      return -1;
   }
 
   int ret = 0;
@@ -610,7 +622,6 @@ int dfread(void * ptr, int ct, DFILE * f) {
     f->flags |= DFILE_ERROR;
     return 0;
   }
-  // dirty_cursor is now 0
   int nread = 0;
   while(ct && f->num_ungets) {
     *(char*)ptr = f->ungets[--f->num_ungets];
@@ -620,6 +631,7 @@ int dfread(void * ptr, int ct, DFILE * f) {
   }
   if(!ct)
     return nread;
+  // dirty_cursor is now 0
   if(dfflush(f) < 0)
     return 0;
   while(ct) {
@@ -653,7 +665,6 @@ char * dfgets(char * buf, int ct, DFILE * f) {
     f->flags |= DFILE_ERROR;
     return NULL;
   }
-  // dirty_cursor is now 0
   int nread = 0;
   bool satisfied = false;
   while(!satisfied && ct && f->num_ungets) {
@@ -666,6 +677,7 @@ char * dfgets(char * buf, int ct, DFILE * f) {
       break;
     }
   }
+  // dirty_cursor is now 0
   if(satisfied) {
     if(ct)
       buf[0] = 0;

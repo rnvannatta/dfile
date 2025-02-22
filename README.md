@@ -23,7 +23,7 @@ int dfread(void * ptr, int ct, DFILE * f);
 int dfwrite(void * ptr, int ct, DFILE * f);
 ```
 
-The `dungetc` function supports the minimum, 2 ungets. It has an unspecified effect on the stream position, although the stream position will return to normal after reading all ungetted chars.
+The `dungetc` function supports the minimum necessary to implement scanf wthout flushing at the end and be posix compliant, 2 ungets.
 
 # Unimplemented functionality
 
