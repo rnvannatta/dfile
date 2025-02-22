@@ -10,7 +10,7 @@
 
 int main() {
   {
-    char * msg = "Hello, Fwrite!\n";
+    char * msg = "Hello, fwrite!\n";
     dfwrite(msg, strlen(msg), dstdout);
   }
   {
@@ -22,11 +22,21 @@ int main() {
     dfclose(fi);
   }
   {
+    char buf[32];
+    dungetc('\n', dstdin);
+    dungetc('Q', dstdin);
+    dfgets(buf, sizeof buf, dstdin);
+    dfputs(buf, dstdout);
+  }
+  {
     DFILE * f = dtmpfile();
-    char * msg = "Hello, Tempfiles!";
+    char * msg = "ello, Tempfiles!";
     dfwrite(msg, strlen(msg), f);
+    dungetc('M', f);
     dfseek(f, 0, SEEK_SET);
     char buf[256];
+    dungetc(dfgetc(f), f);
+    dungetc('H', f);
     if(!dfgets(buf, sizeof buf, f))
       return -1;
     dputs(buf);
@@ -62,6 +72,7 @@ int main() {
     if(dpclose(f))
       return -1;
   }
+  
   dfputs("this should show up\nbut not\nthis", dstdout);
   // fast exit to stop the this from flushing. change to exit(0) to validate
   // flush on exit

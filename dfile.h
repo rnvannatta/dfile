@@ -47,6 +47,7 @@ int dpclose(DFILE * f);
 int dfwrite(const void * ptr, int ct, DFILE * f);
 int dfread(void * ptr, int ct, DFILE * f);
 char * dfgets(char * buf, int ct, DFILE * f);
+int dungetc(int c, DFILE * f);
 
 //////////////////////////////////////////
 //              NICETIES                //

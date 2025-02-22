@@ -71,7 +71,7 @@
 // putc      DONE
 // putchar   DONE
 // puts      DONE
-// ungetc
+// ungetc    DONE
 
 // fread     DONE
 // fwrite    DONE
@@ -124,6 +124,7 @@ typedef struct STRPAGE {
   char buf[DEFAULT_BUF_SIZE];
 } STRPAGE;
 
+enum { DFILE_UNGETS = 2 };
 typedef struct DFILE {
   // invariant:
   // the underlying cursor of the fd is at the buf_cursor
@@ -137,6 +138,8 @@ typedef struct DFILE {
   size_t buf_size;
   char * buf;
   char buf_storage[DEFAULT_BUF_SIZE];
+  int num_ungets;
+  char ungets[DFILE_UNGETS];
   // strfile stuff
   off_t tell;
   off_t len;
@@ -459,6 +462,7 @@ static int dfflush_impl(DFILE * f, int flushbytes) {
 }
 
 int dfflush(DFILE * f) {
+  f->num_ungets = 0;
   if(f->dirty_cursor)
     return dfflush_impl(f, f->dirty_cursor);
   return 0;
@@ -606,10 +610,18 @@ int dfread(void * ptr, int ct, DFILE * f) {
     f->flags |= DFILE_ERROR;
     return 0;
   }
-  if(dfflush(f) < 0)
-    return 0;
   // dirty_cursor is now 0
   int nread = 0;
+  while(ct && f->num_ungets) {
+    *(char*)ptr = f->ungets[--f->num_ungets];
+    ct -= 1;
+    ptr += 1;
+    nread += 1;
+  }
+  if(!ct)
+    return nread;
+  if(dfflush(f) < 0)
+    return 0;
   while(ct) {
     if(f->buf_cursor) {
       int nbytes = ct < f->buf_cursor ? ct : f->buf_cursor;
@@ -641,17 +653,31 @@ char * dfgets(char * buf, int ct, DFILE * f) {
     f->flags |= DFILE_ERROR;
     return NULL;
   }
-  if(dfflush(f) < 0)
-    return NULL;
   // dirty_cursor is now 0
   int nread = 0;
   bool satisfied = false;
+  while(!satisfied && ct && f->num_ungets) {
+    char c = *buf = f->ungets[--f->num_ungets];
+    ct -= 1;
+    buf += 1;
+    nread += 1;
+    if(c == '\n') {
+      satisfied = true;
+      break;
+    }
+  }
+  if(satisfied) {
+    if(ct)
+      buf[0] = 0;
+    return ret;
+  }
+  if(dfflush(f) < 0)
+    return NULL;
   while(!satisfied && ct > 1) {
     if(f->buf_cursor) {
       int nbytes = 0;
       while(nbytes < f->buf_cursor) {
-        if(f->buf[nbytes++] == '\n')
-        {
+        if(f->buf[nbytes++] == '\n') {
           satisfied = true;
           break;
         }
@@ -767,6 +793,17 @@ DFILE * dpopen(const char * cmd, const char *type) {
   return ret;
 #endif
   return NULL;
+}
+
+int dungetc(int c, DFILE * f) {
+  if(c == -1)
+    return -1;
+  if(f->num_ungets < DFILE_UNGETS) {
+    f->ungets[f->num_ungets++] = c;
+    f->flags &= ~DFILE_EOF;
+    return c;
+  }
+  return -1;
 }
 
 //////////////////////////////////////////

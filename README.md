@@ -23,6 +23,8 @@ int dfread(void * ptr, int ct, DFILE * f);
 int dfwrite(void * ptr, int ct, DFILE * f);
 ```
 
+The `dungetc` function supports the minimum, 2 ungets. It has an unspecified effect on the stream position, although the stream position will return to normal after reading all ungetted chars.
+
 # Unimplemented functionality
 
 Things my yak shave didn't require
@@ -31,10 +33,10 @@ Things my yak shave didn't require
 * freopen
 * setbuf
 * setvbuf
-* ungetc
 * fgetpos
 * fsetpos
 * fmemopen
 * open\_memstream
+* fopencookie
 * printf and friends
 * scanf and friends
