@@ -1,5 +1,6 @@
 #ifndef DFILE_H
 #define DFILE_H
+#include <stdarg.h>
 /* Copyright 2025 Richard N Van Natta
  *
  * This file is part of the DFILE stdio alternative.
@@ -63,4 +64,13 @@ int dputchar(int c);
 
 int dfputs(char const * str, DFILE * f);
 int dputs(char const * str);
+
+//////////////////////////////////////////
+//               PRINTF                 //
+//////////////////////////////////////////
+
+__attribute__((format(printf, 1, 2))) int deeprintf(char const * fmt, ...);
+__attribute__((format(printf, 1, 0))) int dvprintf(char const * fmt, va_list args);
+__attribute__((format(printf, 2, 3))) int dfprintf(DFILE * f, char const * fmt, ...);
+__attribute__((format(printf, 2, 0))) int dvfprintf(DFILE * f, char const * fmt, va_list args);
 #endif

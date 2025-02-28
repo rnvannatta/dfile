@@ -38,5 +38,19 @@ Things my yak shave didn't require
 * fmemopen
 * open\_memstream
 * fopencookie
-* printf and friends
+* sprintf and friends
 * scanf and friends
+
+# Printf Implementation Matrix
+
+| format | + | - | \# | space | 0 | width | precision | size |
+|--------|---|---|----|-------|---|-------|-----------|------|
+| d      |   |   |    |       |   |       |           | yes  |
+| u      |   |   |    |       |   |       |           | yes  |
+| x      |   |   |    |       |   |       |           | yes  |
+| o      |   |   |    |       |   |       |           | yes  |
+| wN     |   |   |    |       |   |       |           | -    |
+| wfN    |   |   |    |       |   |       |           | -    |
+| b      |   |   |    |       |   |       |           | yes  |
+| f      |   |   |    |       |   |       |           |      |
+

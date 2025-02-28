@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include "dfile.h"
 #include <stdio.h>
+#include <stdint.h>
 
 int main() {
   {
@@ -73,6 +74,17 @@ int main() {
     dfputs(buf, dstdout);
     if(dpclose(f))
       return -1;
+  }
+
+  {
+    deeprintf("Hell%c, %s!\n", 'o', "printf");
+    deeprintf("Hello, printf numbers! %i %u %i\n", 12, -2, -12);
+    deeprintf("Hey %x, wassup %X. %o %b\n", 0xbabe, 0xBAB3, 0776, 10);
+    deeprintf("%f %f %f %f\n", 1234.0, 1.234, 0.1234, -12340.0);
+    deeprintf("%f %f %f\n", 0.0, -1 / 0.0, 0 / 0.0);
+    deeprintf("%f %f\n", 0.3, 0.1 + 0.2);
+    deeprintf("%w32u\n", (uint32_t)1);
+    deeprintf("%hhu\n", 257);
   }
   
   dfputs("this should show up\nbut not\nthis", dstdout);
