@@ -69,8 +69,8 @@ int dputs(char const * str);
 //               PRINTF                 //
 //////////////////////////////////////////
 
-__attribute__((format(printf, 1, 2))) int deeprintf(char const * fmt, ...);
-__attribute__((format(printf, 1, 0))) int dvprintf(char const * fmt, va_list args);
-__attribute__((format(printf, 2, 3))) int dfprintf(DFILE * f, char const * fmt, ...);
-__attribute__((format(printf, 2, 0))) int dvfprintf(DFILE * f, char const * fmt, va_list args);
+__attribute__((format(printf, 1, 2))) int d_printf(char const * fmt, ...);
+__attribute__((format(printf, 1, 0))) int d_vprintf(char const * fmt, va_list args);
+__attribute__((format(printf, 2, 3))) int d_fprintf(DFILE * f, char const * fmt, ...);
+__attribute__((format(printf, 2, 0))) int d_vfprintf(DFILE * f, char const * fmt, va_list args);
 #endif

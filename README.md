@@ -43,14 +43,27 @@ Things my yak shave didn't require
 
 # Printf Implementation Matrix
 
+Notably, d\_printf supports wN and wfN formats. Free from PRIu64 at last.
+
+d\_printf also adds a 'roundtrip' flag, which *always* prints enough floating point digits to roundtrip the number. When roundtrip is set, the precision defaults to 0 instead of 6. Example usage: `d_printf("%rf %rf\n", 0.3, 0.1 + 0.2);` and `d_printf("%r.6f\n", 0.3);`
+
 | format | + | - | \# | space | 0 | width | precision | size |
 |--------|---|---|----|-------|---|-------|-----------|------|
-| d      |   |   |    |       |   |       |           | yes  |
-| u      |   |   |    |       |   |       |           | yes  |
-| x      |   |   |    |       |   |       |           | yes  |
-| o      |   |   |    |       |   |       |           | yes  |
-| wN     |   |   |    |       |   |       |           | -    |
-| wfN    |   |   |    |       |   |       |           | -    |
-| b      |   |   |    |       |   |       |           | yes  |
-| f      |   |   |    |       |   |       |           |      |
+| d      |yes|yes| -  | yes   |yes| yes   | yes       | yes  |
+| u      | - |yes| -  |  -    |yes| yes   | yes       | yes  |
+| x      | - |yes|yes |  -    |yes| yes   | yes       | yes  |
+| o      | - |yes|yes |  -    |yes| yes   | yes       | yes  |
+| b      | - |yes|yes |  -    |yes| yes   | yes       | yes  |
+| f      |yes|yes|yes | yes   |yes| yes   | yes       | yes  |
+| g      |yes|yes|yes | yes   |yes| yes   | yes       | yes  |
+| a      |yes|yes|yes | yes   |yes| yes   | yes       | yes  |
+| e      |yes|yes|yes | yes   |yes| yes   | yes       | yes  |
+| c      | - |yes| -  |  -    |yes| yes   |  -        | no   |
+| s      | - |yes| -  |  -    |yes| yes   |  -        | no   |
+| m      | - |yes| -  |  -    |yes| yes   |  -        |  -   |
+| p      | - |yes| -  |  -    |yes| yes   | yes       |  -   |
+| n      | - | - | -  |  -    | - |  -    |  -        | yes  |
 
+Widechar strings are not supported because a basic implementation would invite locales, and I'm not ready for an advanced implementation.
+
+Add mutexes

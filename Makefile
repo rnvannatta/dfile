@@ -7,7 +7,7 @@ dfile.a : $(OBJ)
 	ar rcs $@ $^
 
 %.o : %.c
-	gcc -c -o $@ $<
+	gcc -c -o $@ $< -g
 
 %.o : %.cpp
 	gcc -c -o $@ $<
