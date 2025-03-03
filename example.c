@@ -43,6 +43,7 @@ int main() {
     if(!dfgets(buf, sizeof buf, f))
       return -1;
     dputs(buf);
+    dfclose(f);
   }
   {
     DFILE * f = dstrfile();
@@ -53,6 +54,20 @@ int main() {
     if(!dfgets(buf, sizeof buf, f))
       return -1;
     dputs(buf);
+    dfclose(f);
+  }
+  {
+    DFILE * f = dfmemopen(NULL, 64, "r+");
+    char * msg = "Hello, fmemopen?";
+    dfputs(msg, f);
+    dfseek(f, -1, SEEK_CUR);
+    dfputc('!', f);
+    dfseek(f, 0, SEEK_SET);
+    char buf2[64];
+    if(!dfgets(buf2, sizeof buf2, f))
+      return -1;
+    dputs(buf2);
+    dfclose(f);
   }
   {
 #ifdef _WIN64

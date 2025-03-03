@@ -23,6 +23,15 @@
  * If not, visit <https://github.com/rnvannatta>
  */
 
+#ifdef _WIN64
+typedef long long ssize_t;
+typedef long long off64_t;
+#else
+#include <sys/types.h>
+typedef long ssize_t;
+typedef long off64_t;
+#endif
+
 typedef struct DFILE DFILE;
 extern DFILE * dstdin;
 extern DFILE * dstdout;
@@ -49,6 +58,22 @@ int dfwrite(const void * ptr, int ct, DFILE * f);
 int dfread(void * ptr, int ct, DFILE * f);
 char * dfgets(char * buf, int ct, DFILE * f);
 int dungetc(int c, DFILE * f);
+
+typedef ssize_t d_cookie_read_function_t(void * cookie, char * buf, size_t size);
+typedef ssize_t d_cookie_write_function_t(void * cookie, char const * buf, size_t size);
+typedef int d_cookie_seek_function_t(void * cookie, off64_t * offset, int whence);
+typedef int d_cookie_close_function_t(void * cookie);
+
+typedef struct {
+  d_cookie_read_function_t *read;
+  d_cookie_write_function_t *write;
+  d_cookie_seek_function_t *seek;
+  d_cookie_close_function_t *close;
+} d_cookie_io_functions_t;
+
+DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs);
+
+DFILE * dfmemopen(void * buf, size_t size, char const * flags);
 
 //////////////////////////////////////////
 //              NICETIES                //

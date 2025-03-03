@@ -111,12 +111,12 @@ enum {
   DFILE_UNBUFFERED = 32,
   DFILE_EOF = 64,
   DFILE_STRFILE = 128,
-  DFILE_MEMFILE = 256,
+  DFILE_COOKIE = 256,
   DFILE_PROCESS = 512,
 };
 enum { DEFAULT_BUF_SIZE = 4096 };
 
-enum { DFILE_COOKIE = 0xDF11E83 };
+enum { DFILE_CANARY = 0xDF11E83 };
 
 typedef struct STRPAGE {
   struct STRPAGE * next;
@@ -129,7 +129,7 @@ typedef struct DFILE {
   // the underlying cursor of the fd is at the buf_cursor
   // and the dirty region is from 0 to dirty_cursor
   // the cursor of the DFILE is at dirty_cursor
-  int cookie;
+  int canary;
   int fd;
   int buf_cursor;
   int dirty_cursor;
@@ -144,8 +144,9 @@ typedef struct DFILE {
   off_t len;
   union {
     STRPAGE * strpages;
-    char * membuf;
+    void * cookie;
   };
+  d_cookie_io_functions_t funcs;
 #ifdef __linux__
   pid_t process;
 #endif
@@ -156,21 +157,21 @@ typedef struct DFILE {
 } DFILE;
 
 DFILE dstdin_impl = {
-  .cookie = DFILE_COOKIE,
+  .canary = DFILE_CANARY,
   .fd = STDIN_FILENO,
   .flags = DFILE_READ,
   .buf_size = DEFAULT_BUF_SIZE,
   .buf = dstdin_impl.buf_storage,
 };
 DFILE dstdout_impl = {
-  .cookie = DFILE_COOKIE,
+  .canary = DFILE_CANARY,
   .fd = STDOUT_FILENO,
   .flags = DFILE_WRITE | DFILE_LINE_BUFFERED,
   .buf_size = DEFAULT_BUF_SIZE,
   .buf = dstdout_impl.buf_storage,
 };
 DFILE dstderr_impl = {
-  .cookie = DFILE_COOKIE,
+  .canary = DFILE_CANARY,
   .fd = STDERR_FILENO,
   .flags = DFILE_WRITE | DFILE_UNBUFFERED,
   .buf_size = DEFAULT_BUF_SIZE,
@@ -180,7 +181,7 @@ DFILE * dstdin = &dstdin_impl;
 DFILE * dstdout = &dstdout_impl;
 DFILE * dstderr = &dstderr_impl;
 
-static off_t dseek(DFILE * f, off_t offset, int whence) {
+static off64_t dseek(DFILE * f, off64_t offset, int whence) {
   if(f->flags & DFILE_STRFILE) {
     int newtell;
     switch(whence) {
@@ -200,8 +201,18 @@ static off_t dseek(DFILE * f, off_t offset, int whence) {
       return -1;
     f->tell = newtell;
     return f->tell;
+  } else if(f->flags & DFILE_COOKIE) {
+    if(!f->funcs.seek) {
+      return -1;
+    } else {
+      int ret = f->funcs.seek(f->cookie, &offset, whence);
+      if(ret < 0)
+        return ret;
+      else
+        return offset;
+    }
   } else {
-    return lseek(f->fd, offset, whence);
+    return lseek64(f->fd, offset, whence);
   }
 }
 
@@ -228,22 +239,22 @@ void drewind(DFILE * f) {
   dclearerror(f);
 }
 
-DFILE * dfdopen(int fd, char const * flags) {
+DFILE * dfdopen(int fd, char const * mode) {
   DFILE * ret = malloc(sizeof(DFILE));
   int bitfield = 0;
-  if(!strcmp(flags, "w") || !strcmp(flags, "wb")) // doesn't truncate
+  if(!strcmp(mode, "w") || !strcmp(mode, "wb")) // doesn't truncate
     bitfield |= DFILE_WRITE;
-  else if(!strcmp(flags, "r") || !strcmp(flags, "rb"))
+  else if(!strcmp(mode, "r") || !strcmp(mode, "rb"))
     bitfield |= DFILE_READ;
-  else if(!strcmp(flags, "r+") || !strcmp(flags, "rb+"))
+  else if(!strcmp(mode, "r+") || !strcmp(mode, "rb+"))
     bitfield |= DFILE_READ | DFILE_WRITE;
-  else if(!strcmp(flags, "w+") || !strcmp(flags, "wb+")) // w+ and r+ are  the same in fdopen since no truncation
+  else if(!strcmp(mode, "w+") || !strcmp(mode, "wb+")) // w+ and r+ are  the same in fdopen since no truncation
     bitfield |= DFILE_READ | DFILE_WRITE;
   else
     return NULL;
 
   *ret = (DFILE) {
-    .cookie = DFILE_COOKIE,
+    .canary = DFILE_CANARY,
     .fd = fd,
     .buf_cursor = 0,
     .dirty_cursor = 0,
@@ -254,32 +265,119 @@ DFILE * dfdopen(int fd, char const * flags) {
   return ret;
 }
 
-DFILE * dfmemopen(void * buf, int size, char const * flags) {
+DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs) {
   DFILE * ret = malloc(sizeof(DFILE));
-  int bitfield = 0;
-  if(!strcmp(flags, "w") || !strcmp(flags, "wb"))
+  int bitfield = DFILE_COOKIE;
+  if(!strcmp(mode, "w") || !strcmp(mode, "wb")) // doesn't truncate
     bitfield |= DFILE_WRITE;
-  else if(!strcmp(flags, "r") || !strcmp(flags, "rb"))
+  else if(!strcmp(mode, "r") || !strcmp(mode, "rb"))
     bitfield |= DFILE_READ;
-  else if(!strcmp(flags, "r+") || !strcmp(flags, "rb+"))
+  else if(!strcmp(mode, "r+") || !strcmp(mode, "rb+"))
     bitfield |= DFILE_READ | DFILE_WRITE;
-  else if(!strcmp(flags, "w+") || !strcmp(flags, "wb+"))
+  else if(!strcmp(mode, "w+") || !strcmp(mode, "wb+")) // w+ and r+ are  the same in fdopen since no truncation
     bitfield |= DFILE_READ | DFILE_WRITE;
   else
     return NULL;
 
   *ret = (DFILE) {
-    .cookie = DFILE_COOKIE,
+    .canary = DFILE_CANARY,
     .fd = -1,
     .buf_cursor = 0,
     .dirty_cursor = 0,
-    .flags = bitfield | DFILE_MEMFILE,
+    .flags = bitfield,
     .buf_size = DEFAULT_BUF_SIZE,
     .buf = ret->buf_storage,
-    .len = size,
-    .membuf = buf,
+    .cookie = cookie,
+    .funcs = funcs,
   };
   return ret;
+}
+
+typedef struct memfile_cookie {
+  size_t len;
+  off64_t tell;
+  bool owns_buf;
+  char * buf;
+} memfile_cookie;
+static ssize_t write_memfile(void * _cookie, char const * ptr, size_t nbytes) {
+  memfile_cookie * cookie = _cookie;
+
+  if(cookie->len - cookie->tell < nbytes)
+    nbytes = cookie->len - cookie->tell;
+
+  memcpy(cookie->buf + cookie->tell, ptr, nbytes);
+  cookie->tell += nbytes;
+
+  if(cookie->tell < cookie->len)
+    cookie->buf[cookie->tell] = '\0';
+
+  return nbytes;
+}
+static ssize_t read_memfile(void * _cookie, char * ptr, size_t nbytes) {
+  memfile_cookie * cookie = _cookie;
+
+  if(cookie->len - cookie->tell < nbytes)
+    nbytes = cookie->len - cookie->tell;
+
+  memcpy(ptr, cookie->buf + cookie->tell, nbytes);
+  cookie->tell += nbytes;
+
+  return nbytes;
+}
+static int seek_memfile(void * _cookie, off64_t * offset, int whence) {
+  memfile_cookie * cookie = _cookie;
+  off64_t newtell;
+  switch(whence) {
+    case SEEK_SET:
+      newtell = *offset;
+      break;
+    case SEEK_END:
+      newtell = cookie->len + *offset;
+      break;
+    case SEEK_CUR:
+      newtell = cookie->tell + *offset;
+      break;
+    default:
+      return -1;
+  }
+  if(newtell < 0 || newtell > cookie->len)
+    return -1;
+  cookie->tell = newtell;
+  *offset = newtell;
+  return 0;
+}
+static int close_memfile(void * _cookie) {
+  memfile_cookie * cookie = _cookie;
+  if(cookie->owns_buf)
+    free(cookie->buf);
+  free(_cookie);
+  return 0;
+}
+DFILE * dfmemopen(void * buf, size_t size, char const * mode) {
+  if(!strcmp(mode, "w+") || !strcmp(mode, "wb+"))
+    ((char*)buf)[0] = 0;
+  bool owns_buf = false;
+  if(!buf) {
+    buf = malloc(size);
+    owns_buf = true;
+  }
+
+  memfile_cookie * cookie = malloc(sizeof(memfile_cookie));
+  *cookie = (memfile_cookie) {
+    .buf = buf,
+    .tell = 0,
+    .len = size,
+    .owns_buf = owns_buf,
+  };
+
+  d_cookie_io_functions_t funcs = {
+    .read = read_memfile,
+    .write = write_memfile,
+    .seek = seek_memfile,
+    .close = close_memfile,
+  };
+
+  return d_fopencookie(cookie, mode, funcs);
 }
 
 DFILE * dfopen(char const * path, char const * mode) {
@@ -329,7 +427,7 @@ DFILE * dtmpfile() {
 DFILE * dstrfile() {
   DFILE * ret = malloc(sizeof(DFILE));
   *ret = (DFILE) {
-    .cookie = DFILE_COOKIE,
+    .canary = DFILE_CANARY,
     .fd = -1,
     .buf_cursor = 0,
     .dirty_cursor = 0,
@@ -341,7 +439,7 @@ DFILE * dstrfile() {
 }
 
 static int write_strfile(DFILE * f, char const * ptr, int nbytes) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   STRPAGE ** page_place = &f->strpages;
   STRPAGE * page = f->strpages;
   off_t tell = f->tell;
@@ -355,6 +453,7 @@ static int write_strfile(DFILE * f, char const * ptr, int nbytes) {
     if(!page) {
       assert(tell == 0);
       *page_place = page = malloc(sizeof(STRPAGE));
+      memset(page, 0, sizeof(STRPAGE));
     }
     int towrite = DEFAULT_BUF_SIZE - tell;
     if(towrite > nbytes) towrite = nbytes;
@@ -375,7 +474,7 @@ static int write_strfile(DFILE * f, char const * ptr, int nbytes) {
 }
 
 static int read_strfile(DFILE * f, char * ptr, int nbytes) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   off_t tell = f->tell;
   if(f->len - tell < nbytes)
     nbytes = f->len - tell;
@@ -402,36 +501,8 @@ static int read_strfile(DFILE * f, char * ptr, int nbytes) {
   return ret;
 }
 
-#if 0
-static int write_memfile(DFILE * f, char const * ptr, int nbytes) {
-  assert(f->cookie == DFILE_COOKIE);
-  off_t tell = f->tell;
-  if(f->len - tell < nbytes)
-    nbytes = f->len - tell;
-
-  memcpy(f->membuf + tell, ptr, nbytes);
-  f->tell += nbytes;
-
-  if(f->tell < f->len)
-    f->membuf[f->len - 1] = '\0';
-
-  return nbytes;
-}
-static int read_memfile(DFILE * f, char const * ptr, int nbytes) {
-  assert(f->cookie == DFILE_COOKIE);
-  off_t tell = f->tell;
-  if(f->len - tell < nbytes)
-    nbytes = f->len - tell;
-
-  memcpy(ptr, f->membuf + tell, nbytes);
-  f->tell += nbytes;
-
-  return nbytes;
-}
-#endif
-
 static int dfflush_impl(DFILE * f, int flushbytes) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   void * ptr = f->buf;
   int nbytes = flushbytes;
   if(f->buf_cursor) {
@@ -442,7 +513,15 @@ static int dfflush_impl(DFILE * f, int flushbytes) {
     write_strfile(f, ptr, nbytes);
   } else {
     while(nbytes) {
-      int ret = write(f->fd, ptr, nbytes);
+      int ret;
+      if(f->flags & DFILE_COOKIE) {
+        if(!f->funcs.write)
+          ret = nbytes;
+        else
+          ret = f->funcs.write(f->cookie, ptr, nbytes);
+      } else {
+        ret = write(f->fd, ptr, nbytes);
+      }
       if(ret < 0) {
         if(errno != EAGAIN && errno != EWOULDBLOCK) {
           f->flags |= DFILE_ERROR;
@@ -483,7 +562,7 @@ static void flush_stdio() {
 }
 
 int dfseek(DFILE * f, int offset, int whence) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   if(dfflush(f) < 0)
     return -1;
   if(whence == SEEK_CUR) {
@@ -513,9 +592,13 @@ int dfclose(DFILE * f) {
       page = next;
     }
     ret = 0;
+  } else if(f->flags & DFILE_COOKIE) {
+    if(f->funcs.close)
+      ret = f->funcs.close(f->cookie);
   } else {
     ret = close(f->fd);
   }
+
   if(f->flags & DFILE_PROCESS) {
 #ifdef __linux__
     if(waitpid(f->process, &ret, 0) < 0)
@@ -539,7 +622,7 @@ int dpclose(DFILE * f) {
 }
 
 int dfwrite(const void * ptr, int ct, DFILE * f) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   if(!(f->flags & DFILE_WRITE)) {
     f->flags |= DFILE_ERROR;
     return -1;
@@ -592,7 +675,7 @@ int dfwrite(const void * ptr, int ct, DFILE * f) {
 }
 
 static int dfbuffer(DFILE * f) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   if(!(f->flags & DFILE_READ)) {
     f->flags |= DFILE_ERROR;
     return -1;
@@ -606,7 +689,14 @@ static int dfbuffer(DFILE * f) {
     ret = read_strfile(f, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
   } else {
     while(ret < 0) {
-      ret = read(f->fd, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
+      if(f->flags & DFILE_COOKIE) {
+        if(!f->funcs.read)
+          ret = 0;
+        else
+          ret = f->funcs.read(f->cookie, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
+      } else {
+        ret = read(f->fd, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
+      }
       if(ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
         return ret;
     }
@@ -616,7 +706,7 @@ static int dfbuffer(DFILE * f) {
 }
 
 int dfread(void * ptr, int ct, DFILE * f) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   if(!(f->flags & DFILE_READ)) {
     f->flags |= DFILE_ERROR;
     return 0;
@@ -658,7 +748,7 @@ int dfread(void * ptr, int ct, DFILE * f) {
 }
 
 char * dfgets(char * buf, int ct, DFILE * f) {
-  assert(f->cookie == DFILE_COOKIE);
+  assert(f->canary == DFILE_CANARY);
   char * ret = buf;
   if(!(f->flags & DFILE_READ)) {
     f->flags |= DFILE_ERROR;

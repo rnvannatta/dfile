@@ -35,9 +35,7 @@ Things my yak shave didn't require
 * setvbuf
 * fgetpos
 * fsetpos
-* fmemopen
 * open\_memstream
-* fopencookie
 * sprintf and friends
 * scanf and friends
 
