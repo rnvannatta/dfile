@@ -6,7 +6,6 @@
 #include <fcntl.h>
 #include <stdbool.h>
 #include "dfile.h"
-#include <stdio.h>
 #include <stdint.h>
 
 int main() {
@@ -139,6 +138,66 @@ int main() {
     d_printf("%.f\n", 1.0);
     d_printf("%r8.6x\n", 0x1337);
     d_printf("%r.6f\n", 0.1337);
+  }
+
+  {
+    char buf[5];
+    DFILE * f = dfmemopen(buf, sizeof buf, "w0+");
+    char * msg = "Mello, Nerds!";
+    int nchars_written = dfwrite(msg, strlen(msg), f);
+    char buf2[40];
+    dfseek(f, 0, SEEK_SET);
+    dfputc('H', f);
+    dfseek(f, 0, SEEK_SET);
+    int nchars_read = dfread(buf2, sizeof buf2, f);
+    d_printf("%s, Friends! Wrote %d. Read %d. But the buffer is only %zu.\n", buf2, nchars_written, nchars_read, sizeof buf);
+    dfclose(f);
+  }
+
+  {
+    int ret;
+    char buf[5];
+    ret = d_snprintf(buf, sizeof buf, "%c!", 'X');
+    d_printf("Says %s, wrote %d\n", buf, ret);
+    ret = d_snprintf(buf, sizeof buf, "%s!", "Hello, World");
+    d_printf("Says %s, tried to write %d\n", buf, ret);
+  }
+
+  {
+    DFILE * f = dfmemopen(NULL, 0, "w0+");
+    char * msg = "Into the void...";
+    int nchars_written = dfwrite(msg, strlen(msg), f);
+    char buf[64];
+    memset(buf, 1, sizeof buf);
+    int nchars_read = dfread(buf, sizeof buf, f);
+    for(int i = 0; i < sizeof buf; i++) {
+      if(buf[i] != 0)
+        return -1;
+    }
+    d_printf("Sent %d chars into the void and read %d zeroes\n", nchars_written, nchars_read);
+    dfclose(f);
+  }
+
+  {
+    char * buf;
+    size_t len;
+    DFILE * f = d_open_memstream(&buf, &len);
+    dfputs("Mayo", f);
+    dfseek(f, 0, SEEK_SET);
+    dfputc('H', f);
+    dfseek(f, 2, SEEK_END);
+    dfseek(f, -2, SEEK_CUR);
+    dfputc('!', f);
+    dfclose(f);
+    d_printf("Stream says %s, %zu chars\n", buf, len);
+    free(buf);
+  }
+
+  {
+    char * buf;
+    int ret = d_asprintf(&buf, "Hayo, %s!", "friend");
+    d_printf("Wrote '%s' to buf, strlen %d, ret %d\n", buf, strlen(buf), ret);
+    free(buf);
   }
   
   dfputs("this should show up\nbut not\nthis", dstdout);

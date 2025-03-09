@@ -381,9 +381,9 @@ static int print_number(DFILE * f, const char prefix[], const char number[], int
   if(prefixlen && !(specifier.flags & PRINT_ZERO_EXTEND))
     dfwrite(prefix, prefixlen, f);
 
+  ret += nzeroes;
   while(nzeroes--)
     dfputc('0', f);
-  ret += nzeroes;
 
   dfwrite(number, len, f);
   ret += len;
@@ -1033,5 +1033,62 @@ int d_printf(char const * fmt, ...) {
 }
 int d_vprintf(char const * fmt, va_list args) {
   int ret = d_vfprintf(dstdout, fmt, args);
+  return ret;
+}
+
+static _Thread_local DFILE * sprintf_stream;
+
+int d_vsnprintf(char * buf, size_t size, char const * fmt, va_list args) {
+  if(!sprintf_stream) {
+    sprintf_stream = dfmemopen(buf, size, "w0+");
+    if(!sprintf_stream)
+      return -1;
+  } else if(!d_fmemreopen(buf, size, "w0+", sprintf_stream)) {
+    return -1;
+  }
+  int ret = dvfprintf_impl(sprintf_stream, fmt, VA_POINTER(args));
+  dfflush(sprintf_stream);
+  if(size && ret >= size)
+    buf[size-1] = '\0';
+  return ret;
+}
+int d_snprintf(char * buf, size_t size, char const * fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  int ret = d_vsnprintf(buf, size, fmt, args);
+  va_end(args);
+  return ret;
+}
+
+int d_vsprintf(char * buf, char const * fmt, va_list args) {
+  return d_vsnprintf(buf, SIZE_MAX, fmt, args);
+}
+int d_sprintf(char * buf, char const * fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  int ret = d_vsprintf(buf, fmt, args);
+  va_end(args);
+  return ret;
+}
+
+int d_vasprintf(char ** buf, char const * fmt, va_list args) {
+  size_t size;
+  if(!sprintf_stream) {
+    sprintf_stream = d_open_memstream(buf, &size);
+    if(!sprintf_stream)
+      return -1;
+  } else if(!d_reopen_memstream(buf, &size, sprintf_stream)) {
+    return -1;
+  }
+  int ret = dvfprintf_impl(sprintf_stream, fmt, VA_POINTER(args));
+  dfflush(sprintf_stream);
+  d_fmemreopen(NULL, 0, "w0+", sprintf_stream);
+  return ret;
+}
+int d_asprintf(char ** buf, char const * fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  int ret = d_vasprintf(buf, fmt, args);
+  va_end(args);
   return ret;
 }

@@ -57,7 +57,7 @@
 // fclose    DONE
 // fflush    DONE
 // fopen     DONE
-// freopen
+// freopen   DONE
 // setbuf
 // setvbuf
 
@@ -88,19 +88,47 @@
 // popen     DONE
 // pclose    DONE
 
-// fprintf
+// fprintf   DONE
 // fscanf
-// printf
+// printf    DONE
 // scanf
-// snprintf
-// sprintf
+// snprintf  DONE
+// sprintf   DONE
 // sscanf
-// vfprintf
+// vfprintf  DONE
 // vfscanf
-// fscanf
-// vsnprintf
-// vsprintf
+// vfprintf  DONE
+// vscanf
+// vsnprintf DONE
+// vsprintf  DONE
 // vsscanf
+
+// fopencookie      DONE
+// fmemopen         DONE
+// open_memstream   DONE
+// asprintf         DONE
+// vasprintf        DONE
+
+// strfile          DONE
+// fdreopen         DONE
+// freopencookie    DONE
+// fmemreopen       DONE
+// reopen_memstream DONE
+// preopen          DONE
+// retmpfile        DONE
+// restrfile        DONE
+
+// fputf
+// fputg
+// fputa
+// fpute
+// fputb
+// fputo
+// fputu
+// fputx
+// fputd
+// fputp
+// fputm
 
 enum {
   DFILE_ERROR = 1,
@@ -239,8 +267,7 @@ void drewind(DFILE * f) {
   dclearerror(f);
 }
 
-DFILE * dfdopen(int fd, char const * mode) {
-  DFILE * ret = malloc(sizeof(DFILE));
+DFILE * d_fdopen_impl(int fd, char const * mode, DFILE * ret) {
   int bitfield = 0;
   if(!strcmp(mode, "w") || !strcmp(mode, "wb")) // doesn't truncate
     bitfield |= DFILE_WRITE;
@@ -264,9 +291,16 @@ DFILE * dfdopen(int fd, char const * mode) {
   };
   return ret;
 }
-
-DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs) {
+DFILE * dfdopen(int fd, char const * mode) {
   DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_fdopen_impl(fd, mode, ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
+}
+
+static DFILE * d_fopencookie_impl(void * cookie, char const * mode, d_cookie_io_functions_t funcs, DFILE * ret) {
   int bitfield = DFILE_COOKIE;
   if(!strcmp(mode, "w") || !strcmp(mode, "wb")) // doesn't truncate
     bitfield |= DFILE_WRITE;
@@ -292,14 +326,30 @@ DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t 
   };
   return ret;
 }
+DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs) {
+  DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_fopencookie_impl(cookie, mode, funcs, ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
+}
 
+//////////////////////////////////////////
+//               MEMFILE                //
+//////////////////////////////////////////
+
+// FIXME correct SEEK_END and null writing behavior
 typedef struct memfile_cookie {
   size_t len;
   off64_t tell;
+  off64_t maxtell;
   bool owns_buf;
+  bool ignore_overflow;
   char * buf;
 } memfile_cookie;
 static ssize_t write_memfile(void * _cookie, char const * ptr, size_t nbytes) {
+  size_t nbytes_original = nbytes;
   memfile_cookie * cookie = _cookie;
 
   if(cookie->len - cookie->tell < nbytes)
@@ -308,12 +358,14 @@ static ssize_t write_memfile(void * _cookie, char const * ptr, size_t nbytes) {
   memcpy(cookie->buf + cookie->tell, ptr, nbytes);
   cookie->tell += nbytes;
 
+  cookie->maxtell = cookie->maxtell > cookie->tell ? cookie->maxtell : cookie->tell;
   if(cookie->tell < cookie->len)
-    cookie->buf[cookie->tell] = '\0';
+    cookie->buf[cookie->maxtell] = '\0';
 
-  return nbytes;
+  return cookie->ignore_overflow ? nbytes_original : nbytes;
 }
 static ssize_t read_memfile(void * _cookie, char * ptr, size_t nbytes) {
+  size_t nbytes_original = nbytes;
   memfile_cookie * cookie = _cookie;
 
   if(cookie->len - cookie->tell < nbytes)
@@ -322,7 +374,9 @@ static ssize_t read_memfile(void * _cookie, char * ptr, size_t nbytes) {
   memcpy(ptr, cookie->buf + cookie->tell, nbytes);
   cookie->tell += nbytes;
 
-  return nbytes;
+  if(cookie->ignore_overflow)
+    memset(ptr + nbytes, 0, nbytes_original - nbytes);
+  return cookie->ignore_overflow ? nbytes_original : nbytes;
 }
 static int seek_memfile(void * _cookie, off64_t * offset, int whence) {
   memfile_cookie * cookie = _cookie;
@@ -332,7 +386,7 @@ static int seek_memfile(void * _cookie, off64_t * offset, int whence) {
       newtell = *offset;
       break;
     case SEEK_END:
-      newtell = cookie->len + *offset;
+      newtell = cookie->maxtell + *offset;
       break;
     case SEEK_CUR:
       newtell = cookie->tell + *offset;
@@ -340,7 +394,7 @@ static int seek_memfile(void * _cookie, off64_t * offset, int whence) {
     default:
       return -1;
   }
-  if(newtell < 0 || newtell > cookie->len)
+  if(newtell < 0 || (!cookie->ignore_overflow && newtell > cookie->len))
     return -1;
   cookie->tell = newtell;
   *offset = newtell;
@@ -353,11 +407,22 @@ static int close_memfile(void * _cookie) {
   free(_cookie);
   return 0;
 }
-DFILE * dfmemopen(void * buf, size_t size, char const * mode) {
-  if(!strcmp(mode, "w+") || !strcmp(mode, "wb+"))
+static DFILE * d_fmemopen_impl(void * buf, size_t size, char const * _mode, DFILE * ret) {
+  char mode[4];
+  int idx = 0;
+  mode[idx++] = _mode[0];
+  if(strchr(_mode, 'b'))
+    mode[idx++] = 'b';
+  if(strchr(_mode, '+'))
+    mode[idx++] = '+';
+  mode[idx] = '\0';
+  bool ignore_overflow = strchr(_mode, '0');
+  bool truncate = mode[0] == 'w';
+
+  if(mode[0] == 'w' && size)
     ((char*)buf)[0] = 0;
   bool owns_buf = false;
-  if(!buf) {
+  if(!buf && size) {
     buf = malloc(size);
     owns_buf = true;
   }
@@ -366,8 +431,10 @@ DFILE * dfmemopen(void * buf, size_t size, char const * mode) {
   *cookie = (memfile_cookie) {
     .buf = buf,
     .tell = 0,
+    .maxtell = truncate ? 0 : size,
     .len = size,
     .owns_buf = owns_buf,
+    .ignore_overflow = ignore_overflow,
   };
 
   d_cookie_io_functions_t funcs = {
@@ -377,10 +444,119 @@ DFILE * dfmemopen(void * buf, size_t size, char const * mode) {
     .close = close_memfile,
   };
 
-  return d_fopencookie(cookie, mode, funcs);
+  return d_fopencookie_impl(cookie, mode, funcs, ret);
+}
+DFILE * dfmemopen(void * buf, size_t size, char const * mode) {
+  DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_fmemopen_impl(buf, size, mode, ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
 }
 
-DFILE * dfopen(char const * path, char const * mode) {
+//////////////////////////////////////////
+//              MEMSTREAM               //
+//////////////////////////////////////////
+
+typedef struct memstream_cookie {
+  size_t len;
+  size_t *maxtell;
+  size_t tell;
+  char ** buf;
+} memstream_cookie;
+static ssize_t write_memstream(void * _cookie, char const * ptr, size_t nbytes) {
+  memstream_cookie * cookie = _cookie;
+
+  if(cookie->len - cookie->tell <= nbytes) {
+    size_t newlen = cookie->len ? 2* cookie->len : 1;
+    while(newlen - cookie->tell <= nbytes)
+      newlen *= 2;
+    *cookie->buf = realloc(*cookie->buf, newlen);
+    cookie->len = newlen;
+  }
+
+  memcpy(*cookie->buf + cookie->tell, ptr, nbytes);
+  cookie->tell += nbytes;
+  *cookie->maxtell = *cookie->maxtell > cookie->tell ? *cookie->maxtell : cookie->tell;
+  (*cookie->buf)[*cookie->maxtell] = '\0';
+
+  return nbytes;
+}
+static int seek_memstream(void * _cookie, off64_t * offset, int whence) {
+  memstream_cookie * cookie = _cookie;
+  off64_t newtell;
+  switch(whence) {
+    case SEEK_SET:
+      newtell = *offset;
+      break;
+    case SEEK_END:
+      newtell = *cookie->maxtell + *offset;
+      break;
+    case SEEK_CUR:
+      newtell = cookie->tell + *offset;
+      break;
+    default:
+      return -1;
+  }
+  if(newtell < 0)
+    return -1;
+  if(newtell >= cookie->len) {
+    size_t newlen = cookie->len ? 2* cookie->len : 1;
+    while(newlen <= cookie->tell)
+      newlen *= 2;
+    *cookie->buf = realloc(*cookie->buf, newlen);
+    cookie->len = newlen;
+  }
+  if(newtell > *cookie->maxtell) {
+    memset(*cookie->buf + *cookie->maxtell, 0, newtell + 1 - *cookie->maxtell);
+    *cookie->maxtell = newtell;
+  }
+  cookie->tell = newtell;
+  *offset = newtell;
+  return 0;
+}
+static int close_memstream(void * _cookie) {
+  memstream_cookie * cookie = _cookie;
+  *cookie->buf = realloc(*cookie->buf, *cookie->maxtell+1);
+  free(_cookie);
+  return 0;
+}
+static DFILE * d_open_memstream_impl(char ** buf, size_t * tell, DFILE * ret) {
+  *buf = malloc(1);
+  **buf = '\0';
+  *tell = 0;
+  memstream_cookie * cookie = malloc(sizeof(memstream_cookie));
+  *cookie = (memstream_cookie) {
+    .buf = buf,
+    .maxtell = tell,
+    .tell = 0,
+    .len = 0,
+  };
+
+  d_cookie_io_functions_t funcs = {
+    .read = NULL,
+    .write = write_memstream,
+    .seek = seek_memstream,
+    .close = close_memstream,
+  };
+
+  return d_fopencookie_impl(cookie, "w", funcs, ret);
+}
+DFILE * d_open_memstream(char ** buf, size_t * tell) {
+  DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_open_memstream_impl(buf, tell, ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
+}
+
+//////////////////////////////////////////
+//                 MISC                 //
+//////////////////////////////////////////
+
+DFILE * d_fopen_impl(char const * path, char const * mode, DFILE * f) {
   int flags = 0;
   if(!strcmp(mode, "r") || !strcmp(mode, "rb"))
     flags = O_RDONLY;
@@ -395,10 +571,18 @@ DFILE * dfopen(char const * path, char const * mode) {
 
   int fd = open(path, flags);
   if(fd < 0) return NULL;
-  return dfdopen(fd, mode);
+  return d_fdopen_impl(fd, mode, f);
+}
+DFILE * dfopen(char const * path, char const * mode) {
+  DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_fopen_impl(path, mode, ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
 }
 
-DFILE * dtmpfile() {
+static DFILE * d_tmpfile_impl(DFILE * f) {
 #ifdef _WIN64
   // because tmpfile() creates its files in the root folder of the volume
   // and the root C: was changed in Vista to readonly
@@ -421,11 +605,19 @@ DFILE * dtmpfile() {
   int fd = open("/tmp", O_TMPFILE | O_RDWR, 0666);
   if(fd < 0) return NULL;
 #endif
-  return dfdopen(fd, "r+");
+  return d_fdopen_impl(fd, "r+", f);
 }
 
-DFILE * dstrfile() {
+DFILE * dtmpfile() {
   DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_tmpfile_impl(ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
+}
+
+static DFILE * d_strfile_impl(DFILE * ret) {
   *ret = (DFILE) {
     .canary = DFILE_CANARY,
     .fd = -1,
@@ -435,6 +627,15 @@ DFILE * dstrfile() {
     .buf_size = DEFAULT_BUF_SIZE,
     .buf = ret->buf_storage,
   };
+  return ret;
+}
+
+DFILE * dstrfile() {
+  DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_strfile_impl(ret)) {
+    free(ret);
+    return NULL;
+  }
   return ret;
 }
 
@@ -511,17 +712,15 @@ static int dfflush_impl(DFILE * f, int flushbytes) {
   }
   if(f->flags & DFILE_STRFILE) {
     write_strfile(f, ptr, nbytes);
+  } else if(f->flags & DFILE_COOKIE) {
+    if(f->funcs.write) {
+      int ret = f->funcs.write(f->cookie, ptr, nbytes);
+      if(ret < 0)
+        return -1;
+    }
   } else {
     while(nbytes) {
-      int ret;
-      if(f->flags & DFILE_COOKIE) {
-        if(!f->funcs.write)
-          ret = nbytes;
-        else
-          ret = f->funcs.write(f->cookie, ptr, nbytes);
-      } else {
-        ret = write(f->fd, ptr, nbytes);
-      }
+      int ret = write(f->fd, ptr, nbytes);
       if(ret < 0) {
         if(errno != EAGAIN && errno != EWOULDBLOCK) {
           f->flags |= DFILE_ERROR;
@@ -581,7 +780,7 @@ int dfseek(DFILE * f, int offset, int whence) {
   return -1;
 }
 
-int dfclose(DFILE * f) {
+static int d_fclose_impl(DFILE * f) {
   dfflush(f);
   int ret;
   if(f->flags & DFILE_STRFILE) {
@@ -606,19 +805,185 @@ int dfclose(DFILE * f) {
 #endif
 #ifdef _WIN64
     WaitForSingleObject(f->process, -1);
-    DWORD ret;
-    if(!GetExitCodeProcess(f->process, &ret))
-      ret = -1;
+    DWORD ret2;
+    if(!GetExitCodeProcess(f->process, &ret2))
+      ret2 = -1;
     CloseHandle(f->process);
     CloseHandle(f->thread);
-    return ret;
+    ret = ret2;
 #endif
   }
+  return ret;
+}
+
+int dfclose(DFILE * f) {
+  int ret = d_fclose_impl(f);
   free(f);
   return ret;
 }
 int dpclose(DFILE * f) {
   return dfclose(f);
+}
+
+DFILE * d_freopen(char const * path, char const * mode, DFILE * stream) {
+  // permitted to just fail here, so will for cross platform
+  if(!path)
+    goto fail;
+    
+  d_fclose_impl(stream);
+
+  if(!d_fopen_impl(path, mode, stream))
+    goto fail;
+
+  return stream;
+  
+fail:
+  if(stream != dstdout && stream != dstdin && stream != dstderr)
+    free(stream);
+  return NULL;
+}
+
+DFILE * d_fdreopen(int fd, char const * mode, DFILE * stream) {
+  d_fclose_impl(stream);
+
+  if(!d_fdopen_impl(fd, mode, stream))
+    goto fail;
+
+  return stream;
+  
+fail:
+  if(stream != dstdout && stream != dstdin && stream != dstderr)
+    free(stream);
+  return NULL;
+}
+
+DFILE * d_retmpfile(DFILE * stream) {
+  d_fclose_impl(stream);
+
+  if(!d_tmpfile_impl(stream))
+    goto fail;
+
+  return stream;
+  
+fail:
+  if(stream != dstdout && stream != dstdin && stream != dstderr)
+    free(stream);
+  return NULL;
+}
+DFILE * d_restrfile(DFILE * stream) {
+  d_fclose_impl(stream);
+
+  if(!d_strfile_impl(stream))
+    goto fail;
+
+  return stream;
+  
+fail:
+  if(stream != dstdout && stream != dstdin && stream != dstderr)
+    free(stream);
+  return NULL;
+}
+
+DFILE * d_freopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs, DFILE * stream) {
+  d_fclose_impl(stream);
+
+  if(!d_fopencookie_impl(cookie, mode, funcs, stream))
+    goto fail;
+
+  return stream;
+  
+fail:
+  if(stream != dstdout && stream != dstdin && stream != dstderr)
+    free(stream);
+  return NULL;
+}
+
+DFILE * d_fmemreopen(void * buf, size_t size, char const * _mode, DFILE * f) {
+  char mode[4];
+  int idx = 0;
+  mode[idx++] = _mode[0];
+  if(strchr(_mode, 'b'))
+    mode[idx++] = 'b';
+  if(strchr(_mode, '+'))
+    mode[idx++] = '+';
+  mode[idx] = '\0';
+
+  bool ignore_overflow = strchr(_mode, '0');
+  bool truncate = mode[0] == 'w';
+  if(f->flags & DFILE_COOKIE &&
+     f->funcs.read == read_memfile &&
+     f->funcs.write == write_memfile &&
+     f->funcs.seek == seek_memfile &&
+     f->funcs.close == close_memfile) {
+    dfflush(f);
+    memfile_cookie * cookie = f->cookie;
+    if(cookie->owns_buf)
+      free(cookie->buf);
+
+    bool owns_buf = false;
+    if(!buf && size) {
+      buf = malloc(size);
+      owns_buf = true;
+    }
+    if(mode[0] == 'w' && size)
+      ((char*)buf)[0] = 0;
+    *cookie = (memfile_cookie) {
+      .buf = buf,
+      .tell = 0,
+      .maxtell = truncate ? 0 : size,
+      .len = size,
+      .owns_buf = owns_buf,
+    };
+
+    if(!d_fopencookie_impl(cookie, mode, f->funcs, f))
+      goto fail;
+  } else {
+    d_fclose_impl(f);
+
+    if(!d_fmemopen_impl(buf, size, mode, f))
+      goto fail;
+  }
+  return f;
+
+fail:
+  if(f != dstdout && f != dstdin && f != dstderr)
+    free(f);
+  return NULL;
+}
+
+DFILE * d_reopen_memstream(char ** buf, size_t * tell, DFILE * f) {
+  if(f->flags & DFILE_COOKIE &&
+     f->funcs.read == NULL &&
+     f->funcs.write == write_memstream &&
+     f->funcs.seek == seek_memstream &&
+     f->funcs.close == close_memstream) {
+    dfflush(f);
+    memstream_cookie * cookie = f->cookie;
+
+    *buf = malloc(1);
+    **buf = '\0';
+    *tell = 0;
+    *cookie = (memstream_cookie) {
+      .buf = buf,
+      .maxtell = tell,
+      .tell = 0,
+      .len = 0,
+    };
+
+    if(!d_fopencookie_impl(cookie, "w", f->funcs, f))
+      goto fail;
+  } else {
+    d_fclose_impl(f);
+
+    if(!d_open_memstream_impl(buf, tell, f))
+      goto fail;
+  }
+  return f;
+
+fail:
+  if(f != dstdout && f != dstdin && f != dstderr)
+    free(f);
+  return NULL;
 }
 
 int dfwrite(const void * ptr, int ct, DFILE * f) {
@@ -687,16 +1052,14 @@ static int dfbuffer(DFILE * f) {
   int ret = -1;
   if(f->flags & DFILE_STRFILE) {
     ret = read_strfile(f, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
+  } else if(f->flags & DFILE_COOKIE) {
+    if(!f->funcs.read)
+      ret = 0;
+    else
+      ret = f->funcs.read(f->cookie, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
   } else {
     while(ret < 0) {
-      if(f->flags & DFILE_COOKIE) {
-        if(!f->funcs.read)
-          ret = 0;
-        else
-          ret = f->funcs.read(f->cookie, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
-      } else {
-        ret = read(f->fd, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
-      }
+      ret = read(f->fd, f->buf + f->buf_cursor, f->buf_size - f->buf_cursor);
       if(ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
         return ret;
     }
@@ -809,7 +1172,7 @@ char * dfgets(char * buf, int ct, DFILE * f) {
   return ret;
 }
 
-DFILE * dpopen(const char * cmd, const char *type) {
+static DFILE * d_popen_impl(const char * cmd, const char *type, DFILE * f) {
   bool is_read = !strcmp(type, "r");
 #ifdef __linux__
   // 0 is read end 1 is write end
@@ -820,7 +1183,7 @@ DFILE * dpopen(const char * cmd, const char *type) {
   if(pid) {
     // parent
     close(fds[is_read]);
-    DFILE * ret = dfdopen(fds[!is_read], type);
+    DFILE * ret = d_fdopen_impl(fds[!is_read], type, f);
     if(ret) {
       ret->flags |= DFILE_PROCESS;
       ret->process = pid;
@@ -885,7 +1248,7 @@ DFILE * dpopen(const char * cmd, const char *type) {
     CloseHandle(hReadEnd);
     fd = _open_osfhandle((intptr_t)hWriteEnd, 0);
   }
-  DFILE * ret = dfdopen(fd, type);
+  DFILE * ret = d_fdopen_impl(fd, type, f);
   if(ret) {
     ret->flags |= DFILE_PROCESS;
     ret->process = pi.hProcess;
@@ -895,6 +1258,29 @@ DFILE * dpopen(const char * cmd, const char *type) {
 #endif
   return NULL;
 }
+DFILE * dpopen(const char * cmd, const char *type) {
+  DFILE * ret = malloc(sizeof(DFILE));
+  if(!d_popen_impl(cmd, type, ret)) {
+    free(ret);
+    return NULL;
+  }
+  return ret;
+}
+DFILE * d_preopen(char const * cmd, char const * mode, DFILE * stream) {
+  d_fclose_impl(stream);
+
+  if(!d_popen_impl(cmd, mode, stream))
+    goto fail;
+
+  return stream;
+  
+fail:
+  if(stream != dstdout && stream != dstdin && stream != dstderr)
+    free(stream);
+  return NULL;
+}
+
+
 
 int dungetc(int c, DFILE * f) {
   if(c == -1)

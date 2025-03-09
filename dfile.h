@@ -27,7 +27,6 @@
 typedef long long ssize_t;
 typedef long long off64_t;
 #else
-#include <sys/types.h>
 typedef long ssize_t;
 typedef long off64_t;
 #endif
@@ -72,8 +71,19 @@ typedef struct {
 } d_cookie_io_functions_t;
 
 DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs);
-
+// flags can also include a '0' robust buffer access flag
 DFILE * dfmemopen(void * buf, size_t size, char const * flags);
+DFILE * d_open_memstream(char ** buf, size_t * tell);
+
+DFILE * d_fdreopen(int fd, char const * mode, DFILE * f);
+DFILE * d_freopen(char const * path, char const * mode, DFILE * f);
+DFILE * d_freopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs, DFILE * f);
+// memreopening a memfile has a fast path
+DFILE * d_fmemreopen(void * buf, size_t size, char const * flags, DFILE * f);
+DFILE * d_reopen_memstream(char ** buf, size_t * tell, DFILE * f);
+DFILE * d_preopen(char const * cmd, char const * mode, DFILE * f);
+DFILE * d_retmpfile(DFILE * f);
+DFILE * d_restrfile(DFILE * f);
 
 //////////////////////////////////////////
 //              NICETIES                //
@@ -94,8 +104,22 @@ int dputs(char const * str);
 //               PRINTF                 //
 //////////////////////////////////////////
 
-__attribute__((format(printf, 1, 2))) int d_printf(char const * fmt, ...);
-__attribute__((format(printf, 1, 0))) int d_vprintf(char const * fmt, va_list args);
-__attribute__((format(printf, 2, 3))) int d_fprintf(DFILE * f, char const * fmt, ...);
-__attribute__((format(printf, 2, 0))) int d_vfprintf(DFILE * f, char const * fmt, va_list args);
+#ifdef ENABLE_FORMAT_ATTRIBUTE
+#define D_PRINT_ATTR(x, y) __attribute__((format(printf, x, y)))
+#else
+#define D_PRINT_ATTR(x, y)
+#endif
+
+D_PRINT_ATTR(1, 2) int d_printf(char const * fmt, ...);
+D_PRINT_ATTR(1, 0) int d_vprintf(char const * fmt, va_list args);
+D_PRINT_ATTR(2, 3) int d_fprintf(DFILE * f, char const * fmt, ...);
+D_PRINT_ATTR(2, 0) int d_vfprintf(DFILE * f, char const * fmt, va_list args);
+
+D_PRINT_ATTR(3, 4) int d_snprintf(char * buf, size_t size, char const * fmt, ...);
+D_PRINT_ATTR(3, 0) int d_vsnprintf(char * buf, size_t size, char const * fmt, va_list args);
+D_PRINT_ATTR(2, 3) int d_sprintf(char * buf, char const * fmt, ...);
+D_PRINT_ATTR(2, 0) int d_vsprintf(char * buf, char const * fmt, va_list args);
+D_PRINT_ATTR(2, 3) int d_asprintf(char ** buf, char const * fmt, ...);
+D_PRINT_ATTR(2, 0) int d_vasprintf(char ** buf, char const * fmt, va_list args);
+
 #endif
