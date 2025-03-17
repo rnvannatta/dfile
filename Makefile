@@ -1,4 +1,4 @@
-OBJ := dfile.o dprintf.o dragonbox.o
+OBJ := dfile.o dprintf.o dragonbox.o dsanity.o
 WIN_OBJ := $(OBJ:.o=.exe.o)
 
 .PHONY: clean all
@@ -26,6 +26,7 @@ all : dfile.a dfile.lib
 clean :
 	-\rm -f $(OBJ) dfile.a $(WIN_OBJ) dfile.lib
 
-dfile.o : dfile.h
-dfile_printf.o : dfile.h dragonbox.h
-dragonbox.o : dragonbox.h dragonbox.inl
+dfile.exe.o dfile.o : dfile.h
+dprintf.exe.o dprintf.o : dfile.h dragonbox.h
+dragonbox.exe.o dragonbox.o : dragonbox.h dragonbox.inl
+dsanity.exe.o dsanity.o : dfile.h

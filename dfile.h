@@ -1,6 +1,7 @@
 #ifndef DFILE_H
 #define DFILE_H
 #include <stdarg.h>
+#include <stddef.h>
 /* Copyright 2025 Richard N Van Natta
  *
  * This file is part of the DFILE stdio alternative.
@@ -23,12 +24,17 @@
  * If not, visit <https://github.com/rnvannatta>
  */
 
+enum { D_BUFSIZ = 4096 };
+enum { D_SEEK_SET, D_SEEK_CUR, D_SEEK_END };
+enum { D_STDIN_FILENO, D_STDOUT_FILENO, D_STDERR_FILENO };
 #ifdef _WIN64
 typedef long long ssize_t;
 typedef long long off64_t;
+enum { D_IOFBF, D_IOLBF = 64, D_IONBF = 4 };
 #else
 typedef long ssize_t;
 typedef long off64_t;
+enum { D_IOFBF, D_IOLBF, D_IONBF };
 #endif
 
 typedef struct DFILE DFILE;
@@ -41,6 +47,11 @@ int dfeof(DFILE * f);
 int dferror(DFILE * f);
 void dclearerror(DFILE * f);
 
+int d_setvbuf(DFILE * f, char * buf, int mode, size_t size);
+void d_setbuf(DFILE * f, char buf[D_BUFSIZ]);
+void d_setbuffer(DFILE * f, char * buf, size_t size);
+void d_setlinebuf(DFILE * f);
+
 DFILE * dfdopen(int fd, char const * flags);
 DFILE * dfopen(char const * path, char const * mode);
 DFILE * dpopen(char const * cmd, char const * mode);
@@ -50,6 +61,9 @@ DFILE * dstrfile();
 int dfflush(DFILE * f);
 int dfseek(DFILE * f, int offset, int whence);
 void drewind(DFILE * f);
+int d_fgetpos(DFILE * f, off64_t * pos);
+int d_fsetpos(DFILE * f, off64_t * pos);
+
 int dfclose(DFILE * f);
 int dpclose(DFILE * f);
 

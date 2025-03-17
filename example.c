@@ -35,7 +35,7 @@ int main() {
     dungetc('M', f);
     dfwrite("!", 1, f);
     dungetc('M', f);
-    dfseek(f, 0, SEEK_SET);
+    dfseek(f, 0, D_SEEK_SET);
     char buf[256];
     dungetc(dfgetc(f), f);
     dungetc('H', f);
@@ -48,7 +48,7 @@ int main() {
     DFILE * f = dstrfile();
     char * msg = "Hello, Strings!";
     dfwrite(msg, strlen(msg), f);
-    dfseek(f, 0, SEEK_SET);
+    dfseek(f, 0, D_SEEK_SET);
     char buf[20];
     if(!dfgets(buf, sizeof buf, f))
       return -1;
@@ -56,12 +56,12 @@ int main() {
     dfclose(f);
   }
   {
-    DFILE * f = dfmemopen(NULL, 64, "r+");
+    DFILE * f = dfmemopen(NULL, 64, "w+");
     char * msg = "Hello, fmemopen?";
     dfputs(msg, f);
-    dfseek(f, -1, SEEK_CUR);
+    dfseek(f, -1, D_SEEK_CUR);
     dfputc('!', f);
-    dfseek(f, 0, SEEK_SET);
+    dfseek(f, 0, D_SEEK_SET);
     char buf2[64];
     if(!dfgets(buf2, sizeof buf2, f))
       return -1;
@@ -86,6 +86,7 @@ int main() {
     else
       buf[sizeof buf - 1] = 0;
     dfputs(buf, dstdout);
+    dfflush(dstdout);
     if(dpclose(f))
       return -1;
   }
@@ -146,9 +147,9 @@ int main() {
     char * msg = "Mello, Nerds!";
     int nchars_written = dfwrite(msg, strlen(msg), f);
     char buf2[40];
-    dfseek(f, 0, SEEK_SET);
+    dfseek(f, 0, D_SEEK_SET);
     dfputc('H', f);
-    dfseek(f, 0, SEEK_SET);
+    dfseek(f, 0, D_SEEK_SET);
     int nchars_read = dfread(buf2, sizeof buf2, f);
     d_printf("%s, Friends! Wrote %d. Read %d. But the buffer is only %zu.\n", buf2, nchars_written, nchars_read, sizeof buf);
     dfclose(f);
@@ -183,10 +184,10 @@ int main() {
     size_t len;
     DFILE * f = d_open_memstream(&buf, &len);
     dfputs("Mayo", f);
-    dfseek(f, 0, SEEK_SET);
+    dfseek(f, 0, D_SEEK_SET);
     dfputc('H', f);
-    dfseek(f, 2, SEEK_END);
-    dfseek(f, -2, SEEK_CUR);
+    dfseek(f, 2, D_SEEK_END);
+    dfseek(f, -2, D_SEEK_CUR);
     dfputc('!', f);
     dfclose(f);
     d_printf("Stream says %s, %zu chars\n", buf, len);
@@ -200,6 +201,9 @@ int main() {
     free(buf);
   }
   
+  static char linebuffer[2];
+  d_setvbuf(dstdout, linebuffer, D_IOFBF, 2);
+  d_setlinebuf(dstdout);
   dfputs("this should show up\nbut not\nthis", dstdout);
   // fast exit to stop the this from flushing. change to exit(0) to validate
   // flush on exit

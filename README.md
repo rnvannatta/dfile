@@ -45,20 +45,15 @@ This may be how snprintf is implemented :)
 
 Things my yak shave didn't require
 
-* "a" and "a+" mode
-* setbuf
-* setvbuf
-* fgetpos
-* fsetpos
 * scanf and friends
 
 * flockfile
 * ftrylockfile
 * funlockfile
 * all stdio\_unlocked
-ie DFILE is thread unsafe
-
-printf custom formatter
+* ie DFILE is thread unsafe
+* printf custom formatter
+* refactor names
 
 # Printf Implementation Matrix
 

@@ -21,11 +21,11 @@
 #ifdef __linux__
 #define _GNU_SOURCE
 #include <unistd.h>
+#include <pthread.h>
 #include <sys/wait.h>
 #endif
 
 #ifdef _WIN64
-// SEEK_SET & FILENO here here on windings
 #include <stdio.h>
 #include <io.h>
 #include <fileapi.h>
@@ -52,14 +52,16 @@
 // a
 // a+
 
-// tmpfile   DONE
+// tmpfile    DONE
 
-// fclose    DONE
-// fflush    DONE
-// fopen     DONE
-// freopen   DONE
-// setbuf
-// setvbuf
+// fclose     DONE
+// fflush     DONE
+// fopen      DONE
+// freopen    DONE
+// setvbuf    DONE
+// setbuf     DONE
+// setbuffer  DONE
+// setlinebuf DONE
 
 // fgetc     DONE
 // fgets     DONE
@@ -75,9 +77,9 @@
 // fread     DONE
 // fwrite    DONE
 
-// fgetpos
+// fgetpos   DONE
 // fseek     DONE
-// fsetpos
+// fsetpos   DONE
 // ftell     DONE
 // rewind    DONE
 
@@ -130,6 +132,10 @@
 // fputp
 // fputm
 
+// TODO: seek to end with DFILE_APPEND
+// Fix bug with fmemopen? need to position end at first null and need to zero allocated buffer
+// Implement append for cookies and strfiles (which really should be cookies tbh)
+
 enum {
   DFILE_ERROR = 1,
   DFILE_READ = 2,
@@ -142,13 +148,11 @@ enum {
   DFILE_COOKIE = 256,
   DFILE_PROCESS = 512,
 };
-enum { DEFAULT_BUF_SIZE = 4096 };
-
 enum { DFILE_CANARY = 0xDF11E83 };
 
 typedef struct STRPAGE {
   struct STRPAGE * next;
-  char buf[DEFAULT_BUF_SIZE];
+  char buf[D_BUFSIZ];
 } STRPAGE;
 
 enum { DFILE_UNGETS = 2 };
@@ -164,7 +168,7 @@ typedef struct DFILE {
   int flags;
   size_t buf_size;
   char * buf;
-  char buf_storage[DEFAULT_BUF_SIZE];
+  char buf_storage[D_BUFSIZ];
   int num_ungets;
   char ungets[DFILE_UNGETS];
   // strfile stuff
@@ -177,6 +181,7 @@ typedef struct DFILE {
   d_cookie_io_functions_t funcs;
 #ifdef __linux__
   pid_t process;
+  pthread_mutex_t lock;
 #endif
 #ifdef _WIN64
   HANDLE process;
@@ -186,40 +191,56 @@ typedef struct DFILE {
 
 DFILE dstdin_impl = {
   .canary = DFILE_CANARY,
-  .fd = STDIN_FILENO,
+  .fd = D_STDIN_FILENO,
   .flags = DFILE_READ,
-  .buf_size = DEFAULT_BUF_SIZE,
+  .buf_size = D_BUFSIZ,
   .buf = dstdin_impl.buf_storage,
+#ifdef __linux__
+  .lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP,
+#endif
 };
 DFILE dstdout_impl = {
   .canary = DFILE_CANARY,
-  .fd = STDOUT_FILENO,
+  .fd = D_STDOUT_FILENO,
   .flags = DFILE_WRITE | DFILE_LINE_BUFFERED,
-  .buf_size = DEFAULT_BUF_SIZE,
+  .buf_size = D_BUFSIZ,
   .buf = dstdout_impl.buf_storage,
+#ifdef __linux__
+  .lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP,
+#endif
 };
 DFILE dstderr_impl = {
   .canary = DFILE_CANARY,
-  .fd = STDERR_FILENO,
+  .fd = D_STDERR_FILENO,
   .flags = DFILE_WRITE | DFILE_UNBUFFERED,
-  .buf_size = DEFAULT_BUF_SIZE,
+  .buf_size = D_BUFSIZ,
   .buf = dstderr_impl.buf_storage,
+#ifdef __linux__
+  .lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP,
+#endif
 };
 DFILE * dstdin = &dstdin_impl;
 DFILE * dstdout = &dstdout_impl;
 DFILE * dstderr = &dstderr_impl;
 
+__attribute__((destructor))
+static void flush_stdio() {
+  dfflush(dstdin);
+  dfflush(dstdout);
+  dfflush(dstderr);
+}
+
 static off64_t dseek(DFILE * f, off64_t offset, int whence) {
   if(f->flags & DFILE_STRFILE) {
     int newtell;
     switch(whence) {
-      case SEEK_SET:
+      case D_SEEK_SET:
         newtell = offset;
         break;
-      case SEEK_END:
+      case D_SEEK_END:
         newtell = f->len + offset;
         break;
-      case SEEK_CUR:
+      case D_SEEK_CUR:
         newtell = f->tell + offset;
         break;
       default:
@@ -245,9 +266,17 @@ static off64_t dseek(DFILE * f, off64_t offset, int whence) {
 }
 
 long long int dftell(DFILE * f) {
-  off_t o = dseek(f, 0, SEEK_CUR);
+  off_t o = dseek(f, 0, D_SEEK_CUR);
   if(o < 0) return o;
   return o - f->buf_cursor - f->num_ungets + f->dirty_cursor;
+}
+
+int d_fgetpos(DFILE * f, off64_t *pos) {
+  *pos = dftell(f);
+  return -(*pos < 0);
+}
+int d_fsetpos(DFILE * f, off64_t *pos) {
+  return dfseek(f, *pos, D_SEEK_SET);
 }
 
 int dfeof(DFILE * f) {
@@ -263,22 +292,25 @@ void dclearerror(DFILE * f) {
 }
 
 void drewind(DFILE * f) {
-  dfseek(f, 0, SEEK_SET);
+  dfseek(f, 0, D_SEEK_SET);
   dclearerror(f);
 }
 
 DFILE * d_fdopen_impl(int fd, char const * mode, DFILE * ret) {
   int bitfield = 0;
-  if(!strcmp(mode, "w") || !strcmp(mode, "wb")) // doesn't truncate
-    bitfield |= DFILE_WRITE;
-  else if(!strcmp(mode, "r") || !strcmp(mode, "rb"))
+  switch(mode[0]) {
+  case 'r':
     bitfield |= DFILE_READ;
-  else if(!strcmp(mode, "r+") || !strcmp(mode, "rb+"))
+    break;
+  case 'w':
+    bitfield |= DFILE_WRITE;
+    break;
+  case 'a':
+    bitfield |= DFILE_WRITE | DFILE_APPEND;
+    break;
+  }
+  if(strchr(mode, '+'))
     bitfield |= DFILE_READ | DFILE_WRITE;
-  else if(!strcmp(mode, "w+") || !strcmp(mode, "wb+")) // w+ and r+ are  the same in fdopen since no truncation
-    bitfield |= DFILE_READ | DFILE_WRITE;
-  else
-    return NULL;
 
   *ret = (DFILE) {
     .canary = DFILE_CANARY,
@@ -286,7 +318,7 @@ DFILE * d_fdopen_impl(int fd, char const * mode, DFILE * ret) {
     .buf_cursor = 0,
     .dirty_cursor = 0,
     .flags = bitfield,
-    .buf_size = DEFAULT_BUF_SIZE,
+    .buf_size = D_BUFSIZ,
     .buf = ret->buf_storage,
   };
   return ret;
@@ -302,16 +334,19 @@ DFILE * dfdopen(int fd, char const * mode) {
 
 static DFILE * d_fopencookie_impl(void * cookie, char const * mode, d_cookie_io_functions_t funcs, DFILE * ret) {
   int bitfield = DFILE_COOKIE;
-  if(!strcmp(mode, "w") || !strcmp(mode, "wb")) // doesn't truncate
-    bitfield |= DFILE_WRITE;
-  else if(!strcmp(mode, "r") || !strcmp(mode, "rb"))
+  switch(mode[0]) {
+  case 'r':
     bitfield |= DFILE_READ;
-  else if(!strcmp(mode, "r+") || !strcmp(mode, "rb+"))
+    break;
+  case 'w':
+    bitfield |= DFILE_WRITE;
+    break;
+  case 'a':
+    bitfield |= DFILE_WRITE | DFILE_APPEND;
+    break;
+  }
+  if(strchr(mode, '+'))
     bitfield |= DFILE_READ | DFILE_WRITE;
-  else if(!strcmp(mode, "w+") || !strcmp(mode, "wb+")) // w+ and r+ are  the same in fdopen since no truncation
-    bitfield |= DFILE_READ | DFILE_WRITE;
-  else
-    return NULL;
 
   *ret = (DFILE) {
     .canary = DFILE_CANARY,
@@ -319,7 +354,7 @@ static DFILE * d_fopencookie_impl(void * cookie, char const * mode, d_cookie_io_
     .buf_cursor = 0,
     .dirty_cursor = 0,
     .flags = bitfield,
-    .buf_size = DEFAULT_BUF_SIZE,
+    .buf_size = D_BUFSIZ,
     .buf = ret->buf_storage,
     .cookie = cookie,
     .funcs = funcs,
@@ -335,11 +370,43 @@ DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t 
   return ret;
 }
 
+int d_setvbuf(DFILE * f, char * buf, int mode, size_t size) {
+  dfflush(f);
+  f->flags &= ~(DFILE_LINE_BUFFERED | DFILE_UNBUFFERED);
+  switch(mode) {
+  case D_IONBF:
+    f->flags |= DFILE_UNBUFFERED;
+    break;
+  case D_IOLBF:
+    f->flags |= DFILE_LINE_BUFFERED;
+    break;
+  case D_IOFBF:
+    /* absense of flags means fully buffered */
+    break;
+  }
+  if(buf) {
+    f->buf = buf;
+    f->buf_size = size;
+  } else {
+    f->buf = f->buf_storage;
+    f->buf_size = D_BUFSIZ;
+  }
+  return 0;
+}
+void d_setbuf(DFILE * f, char buf[D_BUFSIZ]) {
+  d_setvbuf(f, buf, buf ? D_IOFBF : D_IONBF, D_BUFSIZ);
+}
+void d_setbuffer(DFILE * f, char * buf, size_t size) {
+  d_setvbuf(f, buf, buf ? D_IOFBF : D_IONBF, size);
+}
+void d_setlinebuf(DFILE * f) {
+  d_setvbuf(f, NULL, D_IOLBF, 0);
+}
+
 //////////////////////////////////////////
 //               MEMFILE                //
 //////////////////////////////////////////
 
-// FIXME correct SEEK_END and null writing behavior
 typedef struct memfile_cookie {
   size_t len;
   off64_t tell;
@@ -359,7 +426,7 @@ static ssize_t write_memfile(void * _cookie, char const * ptr, size_t nbytes) {
   cookie->tell += nbytes;
 
   cookie->maxtell = cookie->maxtell > cookie->tell ? cookie->maxtell : cookie->tell;
-  if(cookie->tell < cookie->len)
+  if(cookie->maxtell < cookie->len)
     cookie->buf[cookie->maxtell] = '\0';
 
   return cookie->ignore_overflow ? nbytes_original : nbytes;
@@ -382,13 +449,13 @@ static int seek_memfile(void * _cookie, off64_t * offset, int whence) {
   memfile_cookie * cookie = _cookie;
   off64_t newtell;
   switch(whence) {
-    case SEEK_SET:
+    case D_SEEK_SET:
       newtell = *offset;
       break;
-    case SEEK_END:
+    case D_SEEK_END:
       newtell = cookie->maxtell + *offset;
       break;
-    case SEEK_CUR:
+    case D_SEEK_CUR:
       newtell = cookie->tell + *offset;
       break;
     default:
@@ -417,21 +484,40 @@ static DFILE * d_fmemopen_impl(void * buf, size_t size, char const * _mode, DFIL
     mode[idx++] = '+';
   mode[idx] = '\0';
   bool ignore_overflow = strchr(_mode, '0');
-  bool truncate = mode[0] == 'w';
 
-  if(mode[0] == 'w' && size)
-    ((char*)buf)[0] = 0;
   bool owns_buf = false;
   if(!buf && size) {
     buf = malloc(size);
     owns_buf = true;
   }
 
+  if(owns_buf || (mode[0] == 'w' && size))
+    ((char*)buf)[0] = 0;
+
+  size_t maxtell = 0;
+  switch(mode[0]) {
+  case 'r':
+    maxtell = size;
+    break;
+  case 'w':
+    maxtell = 0;
+    break;
+  case 'a':
+    {
+      void * end = memchr(buf, '\0', size);
+      if(end)
+        maxtell = end - buf;
+      else
+        maxtell = size;
+      break;
+    }
+  }
+
   memfile_cookie * cookie = malloc(sizeof(memfile_cookie));
   *cookie = (memfile_cookie) {
     .buf = buf,
-    .tell = 0,
-    .maxtell = truncate ? 0 : size,
+    .tell = mode[0] == 'a' ? maxtell : 0,
+    .maxtell = maxtell,
     .len = size,
     .owns_buf = owns_buf,
     .ignore_overflow = ignore_overflow,
@@ -487,13 +573,13 @@ static int seek_memstream(void * _cookie, off64_t * offset, int whence) {
   memstream_cookie * cookie = _cookie;
   off64_t newtell;
   switch(whence) {
-    case SEEK_SET:
+    case D_SEEK_SET:
       newtell = *offset;
       break;
-    case SEEK_END:
+    case D_SEEK_END:
       newtell = *cookie->maxtell + *offset;
       break;
-    case SEEK_CUR:
+    case D_SEEK_CUR:
       newtell = cookie->tell + *offset;
       break;
     default:
@@ -558,16 +644,27 @@ DFILE * d_open_memstream(char ** buf, size_t * tell) {
 
 DFILE * d_fopen_impl(char const * path, char const * mode, DFILE * f) {
   int flags = 0;
-  if(!strcmp(mode, "r") || !strcmp(mode, "rb"))
-    flags = O_RDONLY;
-  else if(!strcmp(mode, "w") || !strcmp(mode, "wb"))
-    flags = O_WRONLY | O_CREAT | O_TRUNC;
-  else if(!strcmp(mode, "r+") || !strcmp(mode, "rb+"))
-    flags = O_RDWR;
-  else if(!strcmp(mode, "w+") || !strcmp(mode, "wb+"))
-    flags = O_RDWR | O_CREAT | O_TRUNC;
-  else
-    return NULL;
+  bool plus = strchr(mode, '+');
+  switch(mode[0]) {
+  case 'r':
+    if(plus)
+      flags = O_RDWR;
+    else
+      flags = O_RDONLY;
+    break;
+  case 'w':
+    if(plus)
+      flags = O_RDWR | O_CREAT | O_TRUNC;
+    else
+      flags = O_WRONLY | O_CREAT | O_TRUNC;
+    break;
+  case 'a':
+    if(plus)
+      flags = O_RDWR | O_CREAT | O_APPEND;
+    else
+      flags = O_WRONLY | O_CREAT | O_APPEND;
+    break;
+  }
 
   int fd = open(path, flags);
   if(fd < 0) return NULL;
@@ -624,7 +721,7 @@ static DFILE * d_strfile_impl(DFILE * ret) {
     .buf_cursor = 0,
     .dirty_cursor = 0,
     .flags = DFILE_READ | DFILE_WRITE | DFILE_STRFILE,
-    .buf_size = DEFAULT_BUF_SIZE,
+    .buf_size = D_BUFSIZ,
     .buf = ret->buf_storage,
   };
   return ret;
@@ -645,10 +742,10 @@ static int write_strfile(DFILE * f, char const * ptr, int nbytes) {
   STRPAGE * page = f->strpages;
   off_t tell = f->tell;
   int ret = nbytes;
-  while(tell >= DEFAULT_BUF_SIZE) {
+  while(tell >= D_BUFSIZ) {
     page_place = &page->next;
     page = page->next;
-    tell -= DEFAULT_BUF_SIZE;
+    tell -= D_BUFSIZ;
   }
   while(nbytes) {
     if(!page) {
@@ -656,17 +753,17 @@ static int write_strfile(DFILE * f, char const * ptr, int nbytes) {
       *page_place = page = malloc(sizeof(STRPAGE));
       memset(page, 0, sizeof(STRPAGE));
     }
-    int towrite = DEFAULT_BUF_SIZE - tell;
+    int towrite = D_BUFSIZ - tell;
     if(towrite > nbytes) towrite = nbytes;
     memcpy(page->buf + tell, ptr, towrite);
     tell += towrite;
     f->tell += towrite;
     ptr += towrite;
     nbytes -= towrite;
-    if(tell >= DEFAULT_BUF_SIZE) {
+    if(tell >= D_BUFSIZ) {
       page_place = &page->next;
       page = page->next;
-      tell -= DEFAULT_BUF_SIZE;
+      tell -= D_BUFSIZ;
     }
   }
   if(f->len < f->tell)
@@ -681,22 +778,22 @@ static int read_strfile(DFILE * f, char * ptr, int nbytes) {
     nbytes = f->len - tell;
   int ret = nbytes;
   STRPAGE * page = f->strpages;
-  while(tell >= DEFAULT_BUF_SIZE) {
+  while(tell >= D_BUFSIZ) {
     page = page->next;
-    tell -= DEFAULT_BUF_SIZE;
+    tell -= D_BUFSIZ;
   }
   while(nbytes) {
     assert(page);
-    int toread = DEFAULT_BUF_SIZE - tell;
+    int toread = D_BUFSIZ - tell;
     if(toread > nbytes) toread = nbytes;
     memcpy(ptr, page->buf + tell, toread);
     tell += toread;
     f->tell += toread;
     ptr += toread;
     nbytes -= toread;
-    if(tell >= DEFAULT_BUF_SIZE) {
+    if(tell >= D_BUFSIZ) {
       page = page->next;
-      tell -= DEFAULT_BUF_SIZE;
+      tell -= D_BUFSIZ;
     }
   }
   return ret;
@@ -707,7 +804,7 @@ static int dfflush_impl(DFILE * f, int flushbytes) {
   void * ptr = f->buf;
   int nbytes = flushbytes;
   if(f->buf_cursor) {
-    dseek(f, -f->buf_cursor, SEEK_CUR);
+    dseek(f, -f->buf_cursor, D_SEEK_CUR);
     f->buf_cursor = 0;
   }
   if(f->flags & DFILE_STRFILE) {
@@ -744,7 +841,7 @@ int dfflush(DFILE * f) {
       return -1;
   }
   if(f->num_ungets) {
-    int ret = dseek(f, -f->num_ungets - f->buf_cursor, SEEK_CUR);
+    int ret = dseek(f, -f->num_ungets - f->buf_cursor, D_SEEK_CUR);
     f->num_ungets = 0;
     f->buf_cursor = 0;
     if(ret < 0)
@@ -753,28 +850,21 @@ int dfflush(DFILE * f) {
   return 0;
 }
 
-__attribute__((destructor))
-static void flush_stdio() {
-  dfflush(dstdin);
-  dfflush(dstdout);
-  dfflush(dstderr);
-}
-
 int dfseek(DFILE * f, int offset, int whence) {
   assert(f->canary == DFILE_CANARY);
   if(dfflush(f) < 0)
     return -1;
-  if(whence == SEEK_CUR) {
-    int ret = dseek(f, offset - f->buf_cursor, SEEK_CUR);
+  if(whence == D_SEEK_CUR) {
+    int ret = dseek(f, offset - f->buf_cursor, D_SEEK_CUR);
     f->buf_cursor = 0;
-    return ret;
+    if(ret >= 0)
+      return 0;
   }
-  if(whence == SEEK_SET || whence == SEEK_END) {
+  if(whence == D_SEEK_SET || whence == D_SEEK_END) {
     f->buf_cursor = 0;
     int ret = dseek(f, offset, whence);
-    if(ret < 0)
-      f->flags |= DFILE_ERROR;
-    return ret;
+    if(ret >= 0)
+      return 0;
   }
   f->flags |= DFILE_ERROR;
   return -1;
@@ -899,17 +989,6 @@ fail:
 }
 
 DFILE * d_fmemreopen(void * buf, size_t size, char const * _mode, DFILE * f) {
-  char mode[4];
-  int idx = 0;
-  mode[idx++] = _mode[0];
-  if(strchr(_mode, 'b'))
-    mode[idx++] = 'b';
-  if(strchr(_mode, '+'))
-    mode[idx++] = '+';
-  mode[idx] = '\0';
-
-  bool ignore_overflow = strchr(_mode, '0');
-  bool truncate = mode[0] == 'w';
   if(f->flags & DFILE_COOKIE &&
      f->funcs.read == read_memfile &&
      f->funcs.write == write_memfile &&
@@ -919,18 +998,48 @@ DFILE * d_fmemreopen(void * buf, size_t size, char const * _mode, DFILE * f) {
     memfile_cookie * cookie = f->cookie;
     if(cookie->owns_buf)
       free(cookie->buf);
+    char mode[4];
+    int idx = 0;
+    mode[idx++] = _mode[0];
+    if(strchr(_mode, 'b'))
+      mode[idx++] = 'b';
+    if(strchr(_mode, '+'))
+      mode[idx++] = '+';
+    mode[idx] = '\0';
+    bool ignore_overflow = strchr(_mode, '0');
 
     bool owns_buf = false;
     if(!buf && size) {
       buf = malloc(size);
       owns_buf = true;
     }
-    if(mode[0] == 'w' && size)
+
+    if(owns_buf || (mode[0] == 'w' && size))
       ((char*)buf)[0] = 0;
+
+    size_t maxtell = 0;
+    switch(mode[0]) {
+    case 'r':
+      maxtell = size;
+      break;
+    case 'w':
+      maxtell = 0;
+      break;
+    case 'a':
+      {
+        void * end = memchr(buf, '\0', size);
+        if(end)
+          maxtell = end - buf;
+        else
+          maxtell = size;
+        break;
+      }
+    }
+
     *cookie = (memfile_cookie) {
       .buf = buf,
-      .tell = 0,
-      .maxtell = truncate ? 0 : size,
+      .tell = mode[0] == 'a' ? maxtell : 0,
+      .maxtell = maxtell,
       .len = size,
       .owns_buf = owns_buf,
     };
@@ -940,7 +1049,7 @@ DFILE * d_fmemreopen(void * buf, size_t size, char const * _mode, DFILE * f) {
   } else {
     d_fclose_impl(f);
 
-    if(!d_fmemopen_impl(buf, size, mode, f))
+    if(!d_fmemopen_impl(buf, size, _mode, f))
       goto fail;
   }
   return f;
@@ -994,6 +1103,10 @@ int dfwrite(const void * ptr, int ct, DFILE * f) {
   }
   if(f->num_ungets) {
     if(dfflush(f) < 0)
+      return -1;
+  }
+  if(f->flags & DFILE_APPEND) {
+    if(dfseek(f, 0, D_SEEK_END) < 0)
       return -1;
   }
 
@@ -1221,9 +1334,12 @@ static DFILE * d_popen_impl(const char * cmd, const char *type, DFILE * f) {
     SetHandleInformation(hWriteEnd, 0x00000001, 0);
   }
   PROCESS_INFORMATION pi = {0};
-#define FORMAT "cmd.exe /C %s"
+//#define FORMAT "cmd.exe /C %s"
+#define FORMAT "cmd.exe /C "
   char * cmdline = malloc(strlen(cmd)+sizeof FORMAT);
-  sprintf(cmdline, FORMAT, cmd);
+//  sprintf(cmdline, FORMAT, cmd);
+  strcpy(cmdline, FORMAT);
+  strcat(cmdline, cmd);
   if(!CreateProcess(
        NULL,
        cmdline,
