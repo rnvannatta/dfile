@@ -10,36 +10,40 @@ Truly one of the wackiest yak shaves I've done yet.
 
 The killer feature of DFILE is the `d_fopencookie()` function, which is like the glibc function, except you can use it on windows!
 
-And I needed it to implement the `dstrfile()` function, which returns a DFILE stream, just as `tmpfile()` returns a FILE stream. Except `dstrfile()` does not write to a real tempfile, but instead flushes to an unrolled linked list of pages 4096 chars long.
+And I needed it to implement the `d_strfile()` function, which returns a DFILE stream, just as `tmpfile()` returns a FILE stream. Except `d_strfile()` does not write to a real tempfile, but instead flushes to an unrolled linked list of pages 4096 chars long.
 
-In addition, `dtmpfile()` is also not broken on Windows (though as noted above, it is catastrophically slow), and DFILEs use unix style line endings for everything. So, `dfseek()` is not broken, there is no need for binary file modes, and ugly carriage returns don't infect your files. Likewise, DFILE doesn't use locales, so no random chaos happening upon print or scan. For localization, stdio is the incorrect choice anyway.
+In addition, `d_tmpfile()` is also not broken on Windows (though as noted above, it is catastrophically slow), and DFILEs use unix style line endings for everything. So, `d_fseek()` is not broken, there is no need for binary file modes, and ugly carriage returns don't infect your files. Likewise, DFILE doesn't use locales, so no random chaos happening upon print or scan. For localization, stdio is the incorrect choice anyway.
 
 # How to use DFILE
 
 Replace FILE* with DFILE* throughout your code. All dfile functions and variables have the same as stdio, just prefixed with d_. So `d_puts("Hello, world!", d_stdout)`.
 
-Most of the function calls are the same: the only major difference is dfread and dfwrite, which have the simplified interface. Also, dftell and dfseek use off64\_t instead of off\_t, so that isn't broken on windows. Definitions of off64\_t and ssize\_t are provided.
+Most of the function calls are the same: the only major difference is d_fread_unlocked and d_fwrite_unlocked, which have the simplified interface. Also, d_ftell and d_fseek use off64\_t instead of off\_t, so that isn't broken on windows. Definitions of off64\_t and ssize\_t are provided.
 
 ```
-int dfread(void * ptr, int ct, DFILE * f);
-int dfwrite(void * ptr, int ct, DFILE * f);
+int d_fread_unlocked(void * ptr, int ct, DFILE * f);
+int d_fwrite_unlocked(void * ptr, int ct, DFILE * f);
 ```
 
-The `dungetc` function supports the minimum necessary to implement scanf wthout flushing at the end and be posix compliant, 2 ungets.
+The `d_ungetc` function supports the minimum necessary to implement scanf wthout flushing at the end and be posix compliant, 2 ungets.
 
 Bonus: d\_fmemopen accepts a '0' flag which causes it to ignore writes and read 0s past the end of a buffer, similar to "robust buffer access" on desktop GPUs. For example:
 ```
 char buf[5];
-DFILE * f = dfmemopen(buf, sizeof buf, "w0+");
+DFILE * f = d_fmemopen(buf, sizeof buf, "w0+");
 char * msg = "Hello, Dweebs!";
-int nchars = dfwrite(msg, strlen(msg), f);
+int nchars = d_fwrite_unlocked(msg, strlen(msg), f);
 // writes Hello to the buffer, but reports 14 chars written.
 char buf2[32];
-dfseek(f, 0, SEEK_SET);
-nchars = dfread(buf2, sizeof buf2, f);
+d_fseek(f, 0, SEEK_SET);
+nchars = d_fread_unlocked(buf2, sizeof buf2, f);
 // reads 32 chars into buf2, reading Hello\0\0\0\0...
 ```
 This may be how snprintf is implemented :)
+
+NOTE: dfile only flushes line buffered output when the buffer of line buffered input is populated. Unbuffered reads do not flush output.
+
+Also, dfile relies on termios for line buffered input. line buffered input will act fully buffered on non-terminals and improperly configured terminals.
 
 # Unimplemented functionality
 
@@ -47,13 +51,7 @@ Things my yak shave didn't require
 
 * scanf and friends
 
-* flockfile
-* ftrylockfile
-* funlockfile
-* all stdio\_unlocked
-* ie DFILE is thread unsafe
 * printf custom formatter
-* refactor names
 
 # Printf Implementation Matrix
 

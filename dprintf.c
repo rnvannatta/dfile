@@ -367,30 +367,30 @@ static int print_number(DFILE * f, const char prefix[], const char number[], int
   int ret = 0;
   int prefixlen = strlen(prefix);
   if(prefixlen && (specifier.flags & PRINT_ZERO_EXTEND))
-    dfwrite(prefix, prefixlen, f);
+    d_fwrite_unlocked(prefix, prefixlen, f);
   ret += prefixlen;
 
   char fill = specifier.flags & PRINT_ZERO_EXTEND ? '0' : ' ';
   int fill_len = specifier.field_width - len - strlen(prefix) - nzeroes;
   if(!(specifier.flags & PRINT_LEFT_JUSTIFY)) {
     for(int i = 0; i < fill_len; i++)
-      dfputc(fill, f);
+      d_fputc_unlocked(fill, f);
   }
   ret += fill_len > 0 ? fill_len : 0;
 
   if(prefixlen && !(specifier.flags & PRINT_ZERO_EXTEND))
-    dfwrite(prefix, prefixlen, f);
+    d_fwrite_unlocked(prefix, prefixlen, f);
 
   ret += nzeroes;
   while(nzeroes--)
-    dfputc('0', f);
+    d_fputc_unlocked('0', f);
 
-  dfwrite(number, len, f);
+  d_fwrite_unlocked(number, len, f);
   ret += len;
 
   if(specifier.flags & PRINT_LEFT_JUSTIFY) {
     for(int i = 0; i < fill_len; i++)
-      dfputc(fill, f);
+      d_fputc_unlocked(fill, f);
   }
 
   return ret;
@@ -504,12 +504,12 @@ static int print_double(DFILE * f, print_specifier specifier, va_list * args) {
   }
   int ret = print_number(f, sign, buf, len, specifier, 0);
   while(nzeroes--) {
-    dfputc('0', f);
+    d_fputc_unlocked('0', f);
     ret++;
   }
   if(*suffix) {
     int len = strlen(suffix);
-    dfwrite(suffix, len, f);
+    d_fwrite_unlocked(suffix, len, f);
     ret += len;
   }
   return ret;
@@ -647,12 +647,12 @@ static int print_hexponent(DFILE * f, print_specifier specifier, va_list * args)
     specifier.field_width -= nzeroes;
   }
   while(nzeroes--) {
-    dfputc('0', f);
+    d_fputc_unlocked('0', f);
     ret++;
   }
   if(*suffix) {
     int len = strlen(suffix);
-    dfwrite(suffix, len, f);
+    d_fwrite_unlocked(suffix, len, f);
     ret += len;
   }
   return ret;
@@ -940,7 +940,7 @@ static int print_format(DFILE * f, char const ** pfmt, va_list* args, int nchars
   *pfmt = *pfmt + specifier.chars_consumed;
   switch(specifier.print_kind) {
     case PRINT_PERCENT: {
-      if(dfputc('%', f) < 0)
+      if(d_fputc_unlocked('%', f) < 0)
         return -1;
       return 1;
     }
@@ -992,6 +992,7 @@ static int print_format(DFILE * f, char const ** pfmt, va_list* args, int nchars
 #define VA_POINTER(x) ((va_list*)x)
 #endif
 static int  dvfprintf_impl(DFILE * f, char  const * fmt, va_list *args) {
+  d_flockfile(f);
   int printed = 0;
   char c;
   while((c = *fmt++)) {
@@ -999,18 +1000,21 @@ static int  dvfprintf_impl(DFILE * f, char  const * fmt, va_list *args) {
       case '%': {
         int ret = print_format(f, &fmt, args, printed);
         if(ret < 0) {
+          d_funlockfile(f);
           return -1;
         }
         printed += ret;
         break;
       }
       default:
-        if(dfputc(c, f) < 0) {
+        if(d_fputc_unlocked(c, f) < 0) {
+          d_funlockfile(f);
           return -1;
         }
         printed++;
       }
   }
+  d_funlockfile(f);
   return printed;
 }
 int d_vfprintf(DFILE * f, char const * fmt, va_list args) {
@@ -1040,14 +1044,15 @@ static _Thread_local DFILE * sprintf_stream;
 
 int d_vsnprintf(char * buf, size_t size, char const * fmt, va_list args) {
   if(!sprintf_stream) {
-    sprintf_stream = dfmemopen(buf, size, "w0+");
+    sprintf_stream = d_fmemopen(buf, size, "w0+");
     if(!sprintf_stream)
       return -1;
   } else if(!d_fmemreopen(buf, size, "w0+", sprintf_stream)) {
     return -1;
   }
   int ret = dvfprintf_impl(sprintf_stream, fmt, VA_POINTER(args));
-  dfflush(sprintf_stream);
+  d_fflush_unlocked(sprintf_stream);
+  d_fmemreopen(NULL, 0, "w0+", sprintf_stream);
   if(size && ret >= size)
     buf[size-1] = '\0';
   return ret;
@@ -1081,7 +1086,7 @@ int d_vasprintf(char ** buf, char const * fmt, va_list args) {
     return -1;
   }
   int ret = dvfprintf_impl(sprintf_stream, fmt, VA_POINTER(args));
-  dfflush(sprintf_stream);
+  d_fflush_unlocked(sprintf_stream);
   d_fmemreopen(NULL, 0, "w0+", sprintf_stream);
   return ret;
 }

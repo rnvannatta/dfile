@@ -42,35 +42,40 @@ extern DFILE * dstdin;
 extern DFILE * dstdout;
 extern DFILE * dstderr;
 
-long long int dftell(DFILE * f);
-int dfeof(DFILE * f);
-int dferror(DFILE * f);
-void dclearerror(DFILE * f);
+long long int d_ftell(DFILE * f);
+int d_feof_unlocked(DFILE * f);
+int d_ferror_unlocked(DFILE * f);
+void d_clearerror_unlocked(DFILE * f);
 
 int d_setvbuf(DFILE * f, char * buf, int mode, size_t size);
 void d_setbuf(DFILE * f, char buf[D_BUFSIZ]);
 void d_setbuffer(DFILE * f, char * buf, size_t size);
 void d_setlinebuf(DFILE * f);
+int d_fileno_unlocked(DFILE * f);
 
-DFILE * dfdopen(int fd, char const * flags);
-DFILE * dfopen(char const * path, char const * mode);
-DFILE * dpopen(char const * cmd, char const * mode);
-DFILE * dtmpfile();
-DFILE * dstrfile();
+void d_flockfile(DFILE * f);
+int d_ftrylockfile(DFILE * f);
+void d_funlockfile(DFILE * f);
 
-int dfflush(DFILE * f);
-int dfseek(DFILE * f, int offset, int whence);
-void drewind(DFILE * f);
+DFILE * d_fdopen(int fd, char const * flags);
+DFILE * d_fopen(char const * path, char const * mode);
+DFILE * d_popen(char const * cmd, char const * mode);
+DFILE * d_tmpfile();
+DFILE * d_strfile();
+
+int d_fflush_unlocked(DFILE * f);
+int d_fseek(DFILE * f, int offset, int whence);
+void d_rewind(DFILE * f);
 int d_fgetpos(DFILE * f, off64_t * pos);
 int d_fsetpos(DFILE * f, off64_t * pos);
 
-int dfclose(DFILE * f);
-int dpclose(DFILE * f);
+int d_fclose(DFILE * f);
+int d_pclose(DFILE * f);
 
-int dfwrite(const void * ptr, int ct, DFILE * f);
-int dfread(void * ptr, int ct, DFILE * f);
-char * dfgets(char * buf, int ct, DFILE * f);
-int dungetc(int c, DFILE * f);
+int d_fwrite_unlocked(const void * ptr, int ct, DFILE * f);
+int d_fread_unlocked(void * ptr, int ct, DFILE * f);
+char * d_fgets_unlocked(char * buf, int ct, DFILE * f);
+int d_ungetc(int c, DFILE * f);
 
 typedef ssize_t d_cookie_read_function_t(void * cookie, char * buf, size_t size);
 typedef ssize_t d_cookie_write_function_t(void * cookie, char const * buf, size_t size);
@@ -86,7 +91,7 @@ typedef struct {
 
 DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t funcs);
 // flags can also include a '0' robust buffer access flag
-DFILE * dfmemopen(void * buf, size_t size, char const * flags);
+DFILE * d_fmemopen(void * buf, size_t size, char const * flags);
 DFILE * d_open_memstream(char ** buf, size_t * tell);
 
 DFILE * d_fdreopen(int fd, char const * mode, DFILE * f);
@@ -103,16 +108,41 @@ DFILE * d_restrfile(DFILE * f);
 //              NICETIES                //
 //////////////////////////////////////////
 
-int dfgetc(DFILE * f);
-int dgetc(DFILE * f);
-int dgetchar();
+int d_fgetc_unlocked(DFILE * f);
+int d_getc_unlocked(DFILE * f);
+int d_getchar_unlocked();
 
-int dfputc(int c, DFILE * f);
-int dputc(int c, DFILE * f);
-int dputchar(int c);
+int d_fputc_unlocked(int c, DFILE * f);
+int d_putc_unlocked(int c, DFILE * f);
+int d_putchar_unlocked(int c);
 
-int dfputs(char const * str, DFILE * f);
-int dputs(char const * str);
+int d_fputs_unlocked(char const * str, DFILE * f);
+int d_puts(char const * str);
+
+//////////////////////////////////////////
+//               LOCKED                 //
+//////////////////////////////////////////
+
+int d_feof(DFILE * f);
+int d_ferror(DFILE * f);
+void d_clearerror(DFILE * f);
+
+int d_fileno(DFILE * f);
+int d_fflush(DFILE * f);
+
+int d_fwrite(const void * ptr, int ct, DFILE * f);
+int d_fread(void * ptr, int ct, DFILE * f);
+char * d_fgets(char * buf, int ct, DFILE * f);
+
+int d_fgetc(DFILE * f);
+int d_getc(DFILE * f);
+int d_getchar();
+
+int d_fputc(int c, DFILE * f);
+int d_putc(int c, DFILE * f);
+int d_putchar(int c);
+
+int d_fputs(char const * str, DFILE * f);
 
 //////////////////////////////////////////
 //               PRINTF                 //
