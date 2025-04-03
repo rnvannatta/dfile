@@ -45,6 +45,8 @@ NOTE: dfile only flushes line buffered output when the buffer of line buffered i
 
 Also, dfile relies on termios for line buffered input. line buffered input will act fully buffered on non-terminals and improperly configured terminals.
 
+dfile implements double printing via dragonbox and double parsing via fast\_float.
+
 # Unimplemented functionality
 
 Things my yak shave didn't require
@@ -77,3 +79,19 @@ d\_printf also adds a 'roundtrip' flag, which *always* prints enough floating po
 | n      | - | - | -  |  -    | - | - |  -    |  -        | yes  |
 
 Widechar strings are not supported because a basic implementation would invite locales, and I'm not ready for an advanced implementation.
+
+# Scanf Implementation Matrix
+
+| format | * | width | size |
+|--------|---|-------|------|
+| d      |yes| yes   | yes  |
+| u      |yes| yes   | yes  |
+| x      |yes| yes   | yes  |
+| o      |yes| yes   | yes  |
+| b      |yes| yes   | yes  |
+| gfae n | no| no    | no   |
+| c      |yes| yes   | no   |
+| s      |yes| yes   | no   |
+| \[   n | no| no    | no   |
+| p      |yes| yes   |  -   |
+| n      | - |  -    | yes  |

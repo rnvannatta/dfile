@@ -175,7 +175,7 @@ typedef struct STRPAGE {
   char buf[D_BUFSIZ];
 } STRPAGE;
 
-enum { DFILE_UNGETS = 2 };
+enum { DFILE_UNGETS = 8 };
 typedef struct DFILE_TAIL {
 #ifdef __linux__
   pthread_mutex_t lock;

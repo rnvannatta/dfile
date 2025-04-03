@@ -137,6 +137,7 @@ int main() {
     errno = EINVAL;
     d_printf("%m\n");
     errno = 0;
+    d_printf("%m\n");
     d_printf("%.f\n", 1.0);
     d_printf("%r8.6x\n", 0x1337);
     d_printf("%r.6f\n", 0.1337);
@@ -200,6 +201,15 @@ int main() {
     int ret = d_asprintf(&buf, "Hayo, %s!", "friend");
     d_printf("Wrote '%s' to buf, strlen %d, ret %d\n", buf, strlen(buf), ret);
     free(buf);
+  }
+
+  {
+    d_printf("type an int:\n");
+    int nchars = 0;
+    void* i = 0;
+    int nfields = d_scanf("%p ;%n", &i, &nchars);
+    d_printf("result: %p\n", i);
+    d_printf("scanned %d fields and %d chars\n", nfields, nchars);
   }
   
   static char linebuffer[2];

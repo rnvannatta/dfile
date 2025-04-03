@@ -166,4 +166,6 @@ D_PRINT_ATTR(2, 0) int d_vsprintf(char * buf, char const * fmt, va_list args);
 D_PRINT_ATTR(2, 3) int d_asprintf(char ** buf, char const * fmt, ...);
 D_PRINT_ATTR(2, 0) int d_vasprintf(char ** buf, char const * fmt, va_list args);
 
+int d_scanf(char const * fmt, ...);
+
 #endif

@@ -25,22 +25,8 @@
 #include <string.h>
 #include <errno.h>
 #include "dfile.h"
+#include "dprintf.h"
 #include "dragonbox.h"
-
-enum { PRINT_INCOMPLETE, PRINT_MALFORMED, PRINT_PERCENT, PRINT_CHAR, PRINT_STRING, PRINT_INT, PRINT_UINT, PRINT_BINARY, PRINT_OCTAL, PRINT_HEX, PRINT_DOUBLE, PRINT_EXPONENT, PRINT_GENERAL, PRINT_HEXPONENT, PRINT_POINTER, PRINT_TELL, PRINT_ERROR };
-enum { PRINT_ALLCAPS = 1, PRINT_LEFT_JUSTIFY = 2, PRINT_SIGN = 4, PRINT_SPACE = 8, PRINT_ALTER = 16, PRINT_ZERO_EXTEND = 32, PRINT_ROUNDTRIP = 64 };
-
-enum { PRINT_SHORTSHORT, PRINT_SHORT, PRINT_WORD, PRINT_LONG, PRINT_LONGLONG, PRINT_SIZE, PRINT_MAX, PRINT_PTRDIFF, PRINT_EXACT, PRINT_FAST };
-
-typedef struct print_specifier {
-  int print_kind;
-  int kind_width;
-  int kind_exact_width;
-  int flags;
-  int field_width;
-  int precision;
-  int chars_consumed;
-} print_specifier;
 
 static int scan_unsigned(char const ** pfmt) {
   char const * fmt = *pfmt;
@@ -57,7 +43,8 @@ static int scan_unsigned(char const ** pfmt) {
   return u;
 }
 
-static print_specifier parse_print_specifier(char const * fmt, va_list* args) {
+__attribute__((visibility("hidden")))
+print_specifier parse_print_specifier(char const * fmt, va_list* args) {
   int print_kind = PRINT_INCOMPLETE;
   int flags = 0;
   char const * start = fmt;
@@ -79,6 +66,10 @@ static print_specifier parse_print_specifier(char const * fmt, va_list* args) {
     case 'r':
       flags |= PRINT_ROUNDTRIP;
       break;
+    // FIXME need scanf specific rules
+    //case '*':
+      //flags |= PRINT_IGNORE;
+      //break;
     default:
       parsing_flags = false;
     }
