@@ -11,6 +11,7 @@ enum {
   PRINT_GENERAL, PRINT_HEXPONENT,
   PRINT_POINTER, PRINT_TELL,
   PRINT_ERROR, SCAN_SET,
+  PRINT_CUSTOM,
 
   SCAN_INCOMPLETE = PRINT_INCOMPLETE, SCAN_MALFORMED = PRINT_MALFORMED,
   SCAN_PERCENT = PRINT_PERCENT, SCAN_CHAR = PRINT_CHAR,
@@ -20,6 +21,7 @@ enum {
   SCAN_DOUBLE = PRINT_DOUBLE, SCAN_EXPONENT = PRINT_EXPONENT,
   SCAN_GENERAL = PRINT_GENERAL, SCAN_HEXPONENT = PRINT_HEXPONENT,
   SCAN_POINTER = PRINT_POINTER, SCAN_TELL = PRINT_TELL,
+  SCAN_CUSTOM = PRINT_CUSTOM,
 };
 enum {
   PRINT_ALLCAPS = 1,
@@ -30,6 +32,7 @@ enum {
   PRINT_ZERO_EXTEND = 32,
   PRINT_ROUNDTRIP = 64,
   SCAN_IGNORE = 128,
+  SCAN_INVERTED = 256,
 };
 
 enum {
@@ -64,6 +67,8 @@ typedef struct print_specifier {
   int field_width;
   int precision;
   int chars_consumed;
+  char const * label;
+  char const * label_end;
 } print_specifier;
 
 #endif

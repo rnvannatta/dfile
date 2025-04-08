@@ -10,7 +10,7 @@ libdfile.so : $(OBJ)
 	gcc -c -o $@ $< -fPIC -g
 
 %.o : %.cpp
-	gcc -c -o $@ $< -fPIC -O2 -fvisibility=hidden
+	gcc -c -o $@ $< -fPIC -fvisibility=hidden -O2
 
 dfile.dll : $(WIN_OBJ)
 	/usr/bin/x86_64-w64-mingw32-gcc -shared -o $@ $^
@@ -19,7 +19,7 @@ dfile.dll : $(WIN_OBJ)
 	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $<
 
 %.exe.o : %.cpp
-	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $< -O2 -fno-exceptions -fvisibility=hidden
+	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $< -fno-exceptions -fvisibility=hidden -O2
 
 all : dfile.a dfile.lib libdfile.so
 

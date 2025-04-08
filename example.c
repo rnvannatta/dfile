@@ -12,35 +12,35 @@
 int main() {
   {
     char * msg = "Hello, fwrite!\n";
-    d_fwrite_unlocked(msg, strlen(msg), dstdout);
+    d_fwrite(msg, strlen(msg), dstdout);
   }
   {
     DFILE * fi = d_fopen("testfile", "r");
     char buf[256];
-    if(!d_fgets_unlocked(buf, sizeof buf, fi))
+    if(!d_fgets(buf, sizeof buf, fi))
       return -1;
-    d_fputs_unlocked(buf, dstdout);
+    d_fputs(buf, dstdout);
     assert(!d_fclose(fi));
   }
   {
     char buf[32];
     d_ungetc('\n', dstdin);
     d_ungetc('Q', dstdin);
-    d_fgets_unlocked(buf, sizeof buf, dstdin);
-    d_fputs_unlocked(buf, dstdout);
+    d_fgets(buf, sizeof buf, dstdin);
+    d_fputs(buf, dstdout);
   }
   {
     DFILE * f = d_tmpfile();
     char * msg = "ello, Tempfiles?";
-    d_fwrite_unlocked(msg, strlen(msg), f);
+    d_fwrite(msg, strlen(msg), f);
     d_ungetc('M', f);
-    d_fwrite_unlocked("!", 1, f);
+    d_fwrite("!", 1, f);
     d_ungetc('M', f);
     d_fseek(f, 0, D_SEEK_SET);
     char buf[256];
-    d_ungetc(d_fgetc_unlocked(f), f);
+    d_ungetc(d_fgetc(f), f);
     d_ungetc('H', f);
-    if(!d_fgets_unlocked(buf, sizeof buf, f))
+    if(!d_fgets(buf, sizeof buf, f))
       return -1;
     d_puts(buf);
     assert(!d_fclose(f));
@@ -48,10 +48,10 @@ int main() {
   {
     DFILE * f = d_strfile();
     char * msg = "Hello, Strings!";
-    d_fwrite_unlocked(msg, strlen(msg), f);
+    d_fwrite(msg, strlen(msg), f);
     d_fseek(f, 0, D_SEEK_SET);
     char buf[20];
-    if(!d_fgets_unlocked(buf, sizeof buf, f))
+    if(!d_fgets(buf, sizeof buf, f))
       return -1;
     d_puts(buf);
     assert(!d_fclose(f));
@@ -59,12 +59,12 @@ int main() {
   {
     DFILE * f = d_fmemopen(NULL, 64, "w+");
     char * msg = "Hello, fmemopen?";
-    d_fputs_unlocked(msg, f);
+    d_fputs(msg, f);
     d_fseek(f, -1, D_SEEK_CUR);
-    d_fputc_unlocked('!', f);
+    d_fputc('!', f);
     d_fseek(f, 0, D_SEEK_SET);
     char buf2[64];
-    if(!d_fgets_unlocked(buf2, sizeof buf2, f))
+    if(!d_fgets(buf2, sizeof buf2, f))
       return -1;
     d_puts(buf2);
     assert(!d_fclose(f));
@@ -78,7 +78,7 @@ int main() {
     char buf[1024], *ptr = buf;
     int nbytes;
     do {
-      nbytes = d_fread_unlocked(ptr, buf + sizeof buf - ptr, f);
+      nbytes = d_fread(ptr, buf + sizeof buf - ptr, f);
       if(nbytes > 0)
         ptr += nbytes;
     } while(nbytes > 0);
@@ -86,8 +86,8 @@ int main() {
       *ptr = 0;
     else
       buf[sizeof buf - 1] = 0;
-    d_fputs_unlocked(buf, dstdout);
-    d_fflush_unlocked(dstdout);
+    d_fputs(buf, dstdout);
+    d_fflush(dstdout);
     if(d_pclose(f))
       return -1;
   }
@@ -147,12 +147,12 @@ int main() {
     char buf[5];
     DFILE * f = d_fmemopen(buf, sizeof buf, "w0+");
     char * msg = "Mello, Nerds!";
-    int nchars_written = d_fwrite_unlocked(msg, strlen(msg), f);
+    int nchars_written = d_fwrite(msg, strlen(msg), f);
     char buf2[40];
     d_fseek(f, 0, D_SEEK_SET);
-    d_fputc_unlocked('H', f);
+    d_fputc('H', f);
     d_fseek(f, 0, D_SEEK_SET);
-    int nchars_read = d_fread_unlocked(buf2, sizeof buf2, f);
+    int nchars_read = d_fread(buf2, sizeof buf2, f);
     d_printf("%s, Friends! Wrote %d. Read %d. But the buffer is only %zu.\n", buf2, nchars_written, nchars_read, sizeof buf);
     assert(!d_fclose(f));
   }
@@ -169,10 +169,10 @@ int main() {
   {
     DFILE * f = d_fmemopen(NULL, 0, "w0+");
     char * msg = "Into the void...";
-    int nchars_written = d_fwrite_unlocked(msg, strlen(msg), f);
+    int nchars_written = d_fwrite(msg, strlen(msg), f);
     char buf[64];
     memset(buf, 1, sizeof buf);
-    int nchars_read = d_fread_unlocked(buf, sizeof buf, f);
+    int nchars_read = d_fread(buf, sizeof buf, f);
     for(int i = 0; i < sizeof buf; i++) {
       if(buf[i] != 0)
         return -1;
@@ -185,37 +185,56 @@ int main() {
     char * buf;
     size_t len;
     DFILE * f = d_open_memstream(&buf, &len);
-    d_fputs_unlocked("Mayo", f);
+    d_fputs("Mayo", f);
     d_fseek(f, 0, D_SEEK_SET);
-    d_fputc_unlocked('H', f);
+    d_fputc('H', f);
     d_fseek(f, 2, D_SEEK_END);
     d_fseek(f, -2, D_SEEK_CUR);
-    d_fputc_unlocked('!', f);
+    d_fputc('!', f);
     assert(!d_fclose(f));
     d_printf("Stream says %s, %zu chars\n", buf, len);
-    free(buf);
+    d_free(buf);
   }
 
   {
     char * buf;
     int ret = d_asprintf(&buf, "Hayo, %s!", "friend");
     d_printf("Wrote '%s' to buf, strlen %d, ret %d\n", buf, strlen(buf), ret);
-    free(buf);
+    d_free(buf);
+  }
+
+  {
+    char * str = "Hello, nobody at all";
+    DFILE * f = d_open_strstream(str);
+    char buf[99];
+    d_fscanf(f, "%s", buf);
+    d_printf("%s strstreams!\n", buf);
+    assert(!d_fclose(f));
+  }
+
+  {
+    char * str = "Hello, nobody at all";
+    char buf[99];
+    d_sscanf(str, "%s", buf);
+    d_printf("%s sscanf!\n", buf);
   }
 
   {
     d_printf("type an int:\n");
     int nchars = 0;
-    void* i = 0;
-    int nfields = d_scanf("%p ;%n", &i, &nchars);
-    d_printf("result: %p\n", i);
+    double d = 0;
+    char buf[256];
+    int nfields = d_scanf("%lf ;%n", &d, &nchars);
+    d_printf("result: %r.1f\n", d);
+    //int nfields = d_scanf("%[1-9] ;%n", &buf, &nchars);
+    //d_printf("result: %s\n", buf);
     d_printf("scanned %d fields and %d chars\n", nfields, nchars);
   }
   
   static char linebuffer[2];
   d_setvbuf(dstdout, linebuffer, D_IOFBF, 2);
   d_setlinebuf(dstdout);
-  d_fputs_unlocked("this should show up\nbut not\nthis", dstdout);
+  d_fputs("this should show up\nbut not\nthis", dstdout);
   // fast exit to stop the this from flushing. change to exit(0) to validate
   // flush on exit
   _exit(0);

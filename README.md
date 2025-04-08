@@ -30,7 +30,7 @@ The `d_ungetc` function supports the minimum necessary to implement scanf wthout
 Bonus: d\_fmemopen accepts a '0' flag which causes it to ignore writes and read 0s past the end of a buffer, similar to "robust buffer access" on desktop GPUs. For example:
 ```
 char buf[5];
-DFILE * f = d_fmemopen(buf, sizeof buf, "w0+");
+DFILE * f = d_fmemopen(buf, sizeof buf, "wz+");
 char * msg = "Hello, Dweebs!";
 int nchars = d_fwrite_unlocked(msg, strlen(msg), f);
 // writes Hello to the buffer, but reports 14 chars written.
@@ -40,6 +40,8 @@ nchars = d_fread_unlocked(buf2, sizeof buf2, f);
 // reads 32 chars into buf2, reading Hello\0\0\0\0...
 ```
 This may be how snprintf is implemented :)
+
+Further bonuses: the mode strings have additional flags: `l` for opening a file immediately in line buffered mode, and likewise `u` for unbuffered mode (d\_fmemopen ignores these flags and always opens unbuffered)
 
 NOTE: dfile only flushes line buffered output when the buffer of line buffered input is populated. Unbuffered reads do not flush output.
 
@@ -51,9 +53,8 @@ dfile implements double printing via dragonbox and double parsing via fast\_floa
 
 Things my yak shave didn't require
 
-* scanf and friends
-
-* printf custom formatter
+* printf custom formatter: something I desire, something others have requested
+* performance lol: no optimization work has been done, have been focused on correctness
 
 # Printf Implementation Matrix
 
@@ -89,9 +90,9 @@ Widechar strings are not supported because a basic implementation would invite l
 | x      |yes| yes   | yes  |
 | o      |yes| yes   | yes  |
 | b      |yes| yes   | yes  |
-| gfae n | no| no    | no   |
+| gfae   |yes| yes   | yes  |
 | c      |yes| yes   | no   |
 | s      |yes| yes   | no   |
-| \[   n | no| no    | no   |
+| \[     |yes| yes   | no   |
 | p      |yes| yes   |  -   |
 | n      | - |  -    | yes  |

@@ -44,7 +44,7 @@ static int scan_unsigned(char const ** pfmt) {
 }
 
 __attribute__((visibility("hidden")))
-print_specifier parse_print_specifier(char const * fmt, va_list* args) {
+print_specifier parse_print_specifier(char const * fmt, va_list* args, bool is_scan) {
   int print_kind = PRINT_INCOMPLETE;
   int flags = 0;
   char const * start = fmt;
@@ -66,10 +66,12 @@ print_specifier parse_print_specifier(char const * fmt, va_list* args) {
     case 'r':
       flags |= PRINT_ROUNDTRIP;
       break;
-    // FIXME need scanf specific rules
-    //case '*':
-      //flags |= PRINT_IGNORE;
-      //break;
+    case '*':
+      if(is_scan)
+        flags |= SCAN_IGNORE;
+      else
+        parsing_flags = false;
+      break;
     default:
       parsing_flags = false;
     }
@@ -81,7 +83,7 @@ print_specifier parse_print_specifier(char const * fmt, va_list* args) {
   int field_width = -1;
   if('0' <= *fmt && *fmt <= '9')
     field_width = scan_unsigned(&fmt);
-  else if(*fmt == '*') {
+  else if(!is_scan && *fmt == '*') {
     fmt++;
     field_width = va_arg(*args, int);
   }
@@ -149,13 +151,14 @@ print_specifier parse_print_specifier(char const * fmt, va_list* args) {
       }
       break;
     case 'L':
-      kind_width = PRINT_LONG;
+      kind_width = PRINT_LONGLONG;
       break;
     default:
       skips = 0;
   }
   fmt += skips;
 
+  char const *label = NULL, *label_end = NULL;
   switch((c = *fmt++)) {
     case '%':
       print_kind = PRINT_PERCENT;
@@ -219,6 +222,32 @@ print_specifier parse_print_specifier(char const * fmt, va_list* args) {
     case 'm':
       print_kind = PRINT_ERROR;
       break;
+    case '<':
+      print_kind = PRINT_CUSTOM;
+      label = fmt;
+      while(*fmt && *fmt != '>')
+        fmt++;
+      if(*fmt == '>')
+        label_end = fmt++;
+      else
+        print_kind = PRINT_MALFORMED;
+      break;
+    case '[':
+      print_kind = SCAN_SET;
+      if(*fmt == '^') {
+        flags |= SCAN_INVERTED;
+        fmt++;
+      }
+      label = fmt;
+      if(*fmt == ']')
+        fmt++;
+      while(*fmt && *fmt != ']')
+        fmt++;
+      if(*fmt == ']')
+        label_end = fmt++;
+      else
+        print_kind = PRINT_MALFORMED;
+      break;
     default:
       print_kind = PRINT_MALFORMED;
       break;
@@ -247,6 +276,8 @@ print_specifier parse_print_specifier(char const * fmt, va_list* args) {
     .field_width = field_width,
     .flags = flags,
     .chars_consumed = fmt - start,
+    .label = label,
+    .label_end = label_end,
   };
 }
 
@@ -404,7 +435,7 @@ static int get_exponent(dragonbox dragon, int * dragonexp) {
 static int print_double(DFILE * f, print_specifier specifier, va_list * args) {
   double d;
   switch(specifier.kind_width) {
-  case PRINT_LONG:
+  case PRINT_LONGLONG:
     d = va_arg(*args, long double);
     break;
   default:
@@ -508,7 +539,7 @@ static int print_double(DFILE * f, print_specifier specifier, va_list * args) {
 static int print_hexponent(DFILE * f, print_specifier specifier, va_list * args) {
   double d;
   switch(specifier.kind_width) {
-  case PRINT_LONG:
+  case PRINT_LONGLONG:
     d = va_arg(*args, long double);
     break;
   default:
@@ -927,7 +958,7 @@ static int print_string(DFILE * f, print_specifier specifier, char const * str) 
 }
 
 static int print_format(DFILE * f, char const ** pfmt, va_list* args, int nchars) {
-  print_specifier specifier = parse_print_specifier(*pfmt, args);
+  print_specifier specifier = parse_print_specifier(*pfmt, args, false);
   *pfmt = *pfmt + specifier.chars_consumed;
   switch(specifier.print_kind) {
     case PRINT_PERCENT: {

@@ -93,6 +93,9 @@ DFILE * d_fopencookie(void * cookie, char const * mode, d_cookie_io_functions_t 
 // flags can also include a '0' robust buffer access flag
 DFILE * d_fmemopen(void * buf, size_t size, char const * flags);
 DFILE * d_open_memstream(char ** buf, size_t * tell);
+// opens a string for reading: EOF occures at the nul terminator
+// this stream opens in O(1) time, ie it does not call strlen on str
+DFILE * d_open_strstream(char const * str);
 
 DFILE * d_fdreopen(int fd, char const * mode, DFILE * f);
 DFILE * d_freopen(char const * path, char const * mode, DFILE * f);
@@ -100,6 +103,7 @@ DFILE * d_freopencookie(void * cookie, char const * mode, d_cookie_io_functions_
 // memreopening a memfile has a fast path
 DFILE * d_fmemreopen(void * buf, size_t size, char const * flags, DFILE * f);
 DFILE * d_reopen_memstream(char ** buf, size_t * tell, DFILE * f);
+DFILE * d_reopen_strstream(char const * str, DFILE * f);
 DFILE * d_preopen(char const * cmd, char const * mode, DFILE * f);
 DFILE * d_retmpfile(DFILE * f);
 DFILE * d_restrfile(DFILE * f);
@@ -155,17 +159,31 @@ int d_fputs(char const * str, DFILE * f);
 #endif
 
 D_PRINT_ATTR(1, 2) int d_printf(char const * fmt, ...);
-D_PRINT_ATTR(1, 0) int d_vprintf(char const * fmt, va_list args);
 D_PRINT_ATTR(2, 3) int d_fprintf(DFILE * f, char const * fmt, ...);
-D_PRINT_ATTR(2, 0) int d_vfprintf(DFILE * f, char const * fmt, va_list args);
-
 D_PRINT_ATTR(3, 4) int d_snprintf(char * buf, size_t size, char const * fmt, ...);
-D_PRINT_ATTR(3, 0) int d_vsnprintf(char * buf, size_t size, char const * fmt, va_list args);
 D_PRINT_ATTR(2, 3) int d_sprintf(char * buf, char const * fmt, ...);
-D_PRINT_ATTR(2, 0) int d_vsprintf(char * buf, char const * fmt, va_list args);
 D_PRINT_ATTR(2, 3) int d_asprintf(char ** buf, char const * fmt, ...);
+
+D_PRINT_ATTR(1, 0) int d_vprintf(char const * fmt, va_list args);
+D_PRINT_ATTR(2, 0) int d_vfprintf(DFILE * f, char const * fmt, va_list args);
+D_PRINT_ATTR(3, 0) int d_vsnprintf(char * buf, size_t size, char const * fmt, va_list args);
+D_PRINT_ATTR(2, 0) int d_vsprintf(char * buf, char const * fmt, va_list args);
 D_PRINT_ATTR(2, 0) int d_vasprintf(char ** buf, char const * fmt, va_list args);
 
 int d_scanf(char const * fmt, ...);
+int d_fscanf(DFILE * f, char const * fmt, ...);
+int d_sscanf(char const * str, char const * fmt, ...);
+
+int d_vscanf(char const * fmt, va_list args);
+int d_vfscanf(DFILE * f, char const * fmt, va_list args);
+int d_vsscanf(char const * str, char const * fmt, va_list args);
+
+//////////////////////////////////////////
+//             WINDOWS :(               //
+//////////////////////////////////////////
+
+// for freeing memory created with d_asprintf
+// or d_open_memstream because of dll bundary rules
+void d_free(const void * ptr);
 
 #endif

@@ -506,6 +506,10 @@ static DFILE * d_fdopen_impl(int fd, char const * mode, DFILE * ret) {
   }
   if(strchr(mode, '+'))
     bitfield |= DFILE_READ | DFILE_WRITE;
+  if(strchr(mode, 'l'))
+    bitfield |= DFILE_LINE_BUFFERED;
+  if(strchr(mode, 'u'))
+    bitfield |= DFILE_UNBUFFERED;
 
   if(isatty(fd))
     bitfield |= DFILE_LINE_BUFFERED;
@@ -546,6 +550,10 @@ static DFILE * d_fopencookie_impl(void * cookie, char const * mode, d_cookie_io_
   }
   if(strchr(mode, '+'))
     bitfield |= DFILE_READ | DFILE_WRITE;
+  if(strchr(mode, 'l'))
+    bitfield |= DFILE_LINE_BUFFERED;
+  if(strchr(mode, 'u'))
+    bitfield |= DFILE_UNBUFFERED;
 
   *ret = (DFILE) {
     .canary = DFILE_CANARY,
@@ -686,13 +694,14 @@ static int close_memfile(void * _cookie) {
   return 0;
 }
 static DFILE * d_fmemopen_impl(void * buf, size_t size, char const * _mode, DFILE * ret) {
-  char mode[4];
+  char mode[5];
   int idx = 0;
   mode[idx++] = _mode[0];
   if(strchr(_mode, 'b'))
     mode[idx++] = 'b';
   if(strchr(_mode, '+'))
     mode[idx++] = '+';
+  mode[idx++] = 'u';
   mode[idx] = '\0';
   bool ignore_overflow = strchr(_mode, '0');
 
@@ -839,11 +848,103 @@ static DFILE * d_open_memstream_impl(char ** buf, size_t * tell, DFILE * ret) {
     .close = close_memstream,
   };
 
-  return d_fopencookie_impl(cookie, "w", funcs, ret);
+  return d_fopencookie_impl(cookie, "wu", funcs, ret);
 }
 DFILE * d_open_memstream(char ** buf, size_t * tell) {
   DFILE * ret = malloc_dfile();
   if(!d_open_memstream_impl(buf, tell, ret)) {
+    free(ret);
+    return NULL;
+  }
+  init_dfile_tail(ret);
+  return ret;
+}
+
+//////////////////////////////////////////
+//              STRSTREAM               //
+//////////////////////////////////////////
+
+typedef struct strstream_cookie {
+  size_t tell;
+  char const * buf;
+} strstream_cookie;
+
+static size_t readinto(char * dst, char const * src, size_t len) {
+  char c;
+  size_t i = 0;
+  while(i < len && (c = *src++))
+    dst[i++] = c;
+  return i;
+}
+
+static ssize_t read_strstream(void * _cookie, char * ptr, size_t nbytes) {
+  strstream_cookie * cookie = _cookie;
+
+  char const * at = cookie->buf + cookie->tell;
+  nbytes = readinto(ptr, cookie->buf + cookie->tell, nbytes);
+
+  cookie->tell += nbytes;
+
+  return nbytes;
+}
+static int seek_strstream(void * _cookie, off64_t * offset, int whence) {
+  strstream_cookie * cookie = _cookie;
+  off64_t newtell;
+  switch(whence) {
+    case D_SEEK_SET:
+      newtell = *offset;
+      break;
+    case D_SEEK_END:
+      if(*offset > 0)
+        return -1;
+      newtell = strlen(cookie->buf + cookie->tell) + cookie->tell + *offset;
+      break;
+    case D_SEEK_CUR:
+      newtell = cookie->tell + *offset;
+      break;
+    default:
+      return -1;
+  }
+  if(newtell < 0)
+    return -1;
+
+  if(whence != D_SEEK_END && newtell > cookie->tell) {
+    char const * ptr = cookie->buf;
+    size_t i = cookie->tell;
+    while(ptr[i] && i < newtell)
+      i++;
+    if(i != newtell)
+      return -1;
+  }
+  
+  cookie->tell = newtell;
+  *offset = newtell;
+  return 0;
+}
+static int close_strstream(void * _cookie) {
+  strstream_cookie * cookie = _cookie;
+  free(_cookie);
+  return 0;
+}
+static DFILE * d_open_strstream_impl(char const * buf, DFILE * ret) {
+  strstream_cookie * cookie = malloc(sizeof(strstream_cookie));
+  *cookie = (strstream_cookie) {
+    .buf = buf,
+    .tell = 0,
+  };
+
+  d_cookie_io_functions_t funcs = {
+    .read = read_strstream,
+    .write = NULL,
+    .seek = seek_strstream,
+    .close = close_strstream,
+  };
+
+  return d_fopencookie_impl(cookie, "ru", funcs, ret);
+}
+DFILE * d_open_strstream(char const * buf) {
+  DFILE * ret = malloc_dfile();
+  if(!d_open_strstream_impl(buf, ret)) {
     free(ret);
     return NULL;
   }
@@ -1247,13 +1348,14 @@ DFILE * d_fmemreopen(void * buf, size_t size, char const * _mode, DFILE * f) {
     memfile_cookie * cookie = f->cookie;
     if(cookie->owns_buf)
       free(cookie->buf);
-    char mode[4];
+    char mode[5];
     int idx = 0;
     mode[idx++] = _mode[0];
     if(strchr(_mode, 'b'))
       mode[idx++] = 'b';
     if(strchr(_mode, '+'))
       mode[idx++] = '+';
+    mode[idx++] = 'u';
     mode[idx] = '\0';
     bool ignore_overflow = strchr(_mode, '0');
 
@@ -1332,12 +1434,46 @@ DFILE * d_reopen_memstream(char ** buf, size_t * tell, DFILE * f) {
       .len = 0,
     };
 
-    if(!d_fopencookie_impl(cookie, "w", f->funcs, f))
+    if(!d_fopencookie_impl(cookie, "wu", f->funcs, f))
       goto fail;
   } else {
     d_fclose_impl(f);
 
     if(!d_open_memstream_impl(buf, tell, f))
+      goto fail;
+  }
+  reseat_dfile_list(oldflags, f);
+  return f;
+
+fail:
+  if(f != dstdout && f != dstdin && f != dstderr) {
+    remove_dfile_list(f);
+    free(f);
+  }
+  return NULL;
+}
+
+DFILE * d_reopen_strstream(char const * buf, DFILE * f) {
+  int oldflags = f->flags;
+  if(f->flags & DFILE_COOKIE &&
+     f->funcs.read == read_strstream &&
+     f->funcs.write == NULL &&
+     f->funcs.seek == seek_strstream &&
+     f->funcs.close == close_strstream) {
+    d_fflush_unlocked(f);
+    strstream_cookie * cookie = f->cookie;
+
+    *cookie = (strstream_cookie) {
+      .buf = buf,
+      .tell = 0,
+    };
+
+    if(!d_fopencookie_impl(cookie, "ru", f->funcs, f))
+      goto fail;
+  } else {
+    d_fclose_impl(f);
+
+    if(!d_open_strstream_impl(buf, f))
       goto fail;
   }
   reseat_dfile_list(oldflags, f);
@@ -1717,7 +1853,7 @@ void d_funlockfile(DFILE * f) {
 int d_fgetc_unlocked(DFILE * f) {
   char c;
   int ret = d_fread_unlocked(&c, 1, f);
-  return ret <= 0 ? -1 : c;
+  return ret <= 0 ? -1 : (unsigned char)c;
 }
 
 int d_getc_unlocked(DFILE * f) {
@@ -1830,4 +1966,8 @@ int d_fputs(char const * ptr, DFILE * f) {
   int ret = d_fputs_unlocked(ptr, f);
   d_funlockfile(f);
   return ret;
+}
+
+void d_free(const void * ptr) {
+  free((void*)ptr);
 }
