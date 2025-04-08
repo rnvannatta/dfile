@@ -30,7 +30,7 @@ The `d_ungetc` function supports the minimum necessary to implement scanf wthout
 Bonus: d\_fmemopen accepts a '0' flag which causes it to ignore writes and read 0s past the end of a buffer, similar to "robust buffer access" on desktop GPUs. For example:
 ```
 char buf[5];
-DFILE * f = d_fmemopen(buf, sizeof buf, "wz+");
+DFILE * f = d_fmemopen(buf, sizeof buf, "w0+");
 char * msg = "Hello, Dweebs!";
 int nchars = d_fwrite_unlocked(msg, strlen(msg), f);
 // writes Hello to the buffer, but reports 14 chars written.
