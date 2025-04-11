@@ -237,5 +237,6 @@ int main() {
   d_fputs("this should show up\nbut not\nthis", dstdout);
   // fast exit to stop the this from flushing. change to exit(0) to validate
   // flush on exit
-  _exit(0);
+  *(char*)NULL = 0;
+  //_exit(0);
 }

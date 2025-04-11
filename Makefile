@@ -1,34 +1,44 @@
-OBJ := dfile.o dprintf.o dragonbox.o fast_float.o dsanity.o dscanf.o
+OBJ := $(addprefix build/, dfile.o dprintf.o dragonbox.o fast_float.o dsanity.o dscanf.o)
 WIN_OBJ := $(OBJ:.o=.exe.o)
 
+DEP := $(OBJ:.o=.d) $(WIN_OBJ:.o=.d)
+
 .PHONY: clean all
+
+CFLAGS += -Iinclude
 
 libdfile.so : $(OBJ)
 	gcc -shared -o $@ $^
 
-%.o : %.c
-	gcc -c -o $@ $< -fPIC -g
+build/%.o : src/%.c
+	@mkdir -p $(dir $@)
+	gcc -c -o $@ $< -fPIC -MMD -MP $(CFLAGS)
 
-%.o : %.cpp
-	gcc -c -o $@ $< -fPIC -fvisibility=hidden -O2
+build/%.o : src/%.cpp
+	@mkdir -p $(dir $@)
+	gcc -c -o $@ $< -fPIC -MMD -MP -fvisibility=hidden -Os $(CFLAGS)
 
 dfile.dll : $(WIN_OBJ)
-	/usr/bin/x86_64-w64-mingw32-gcc -shared -o $@ $^
+	/usr/bin/x86_64-w64-mingw32-gcc -shared -o $@ $^ -lgcc_eh
 
-%.exe.o : %.c
-	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $<
+build/%.exe.o : src/%.c
+	@mkdir -p $(dir $@)
+	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $< -MMD -MP $(CFLAGS)
 
-%.exe.o : %.cpp
-	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $< -fno-exceptions -fvisibility=hidden -O2
+build/%.exe.o : src/%.cpp
+	@mkdir -p $(dir $@)
+	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $< -fno-exceptions -MMD -MP -fvisibility=hidden -Os $(CFLAGS)
 
-all : dfile.a dfile.lib libdfile.so
+libdfile.a : $(OBJ)
+	ar rcs -o $@ $^
+
+dfile.lib : $(WIN_OBJ)
+	/usr/bin/x86_64-w64-mingw32-ar rcs -o $@ $^
+
+all : libdfile.so dfile.dll
+gpl : libdfile.a dfile.lib
 
 clean :
-	-\rm -f $(OBJ) dfile.a $(WIN_OBJ) dfile.lib
+	-\rm -f $(OBJ) dfile.a $(WIN_OBJ) dfile.lib dfile.dll libdfile.so a.out a.exe $(DEP)
 
-dfile.exe.o dfile.o : dfile.h
-dprintf.exe.o dprintf.o : dfile.h dragonbox.h dprintf.h
-dscanf.exe.o dscanf.o : dfile.h fast_float.h dprintf.h
-dragonbox.exe.o dragonbox.o : dragonbox.h dragonbox.inl
-fast_float.exe.o fast_float.o : fast_float.h
-dsanity.exe.o dsanity.o : dfile.h
+-include $(DEP)
