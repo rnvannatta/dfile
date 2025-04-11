@@ -5,7 +5,7 @@ DEP := $(OBJ:.o=.d) $(WIN_OBJ:.o=.d)
 
 .PHONY: clean all
 
-CFLAGS += -Iinclude
+CFLAGS += -Iinclude -g
 
 libdfile.so : $(OBJ)
 	gcc -shared -o $@ $^
@@ -29,16 +29,9 @@ build/%.exe.o : src/%.cpp
 	@mkdir -p $(dir $@)
 	/usr/bin/x86_64-w64-mingw32-gcc -c -o $@ $< -fno-exceptions -MMD -MP -fvisibility=hidden -Os $(CFLAGS)
 
-libdfile.a : $(OBJ)
-	ar rcs -o $@ $^
-
-dfile.lib : $(WIN_OBJ)
-	/usr/bin/x86_64-w64-mingw32-ar rcs -o $@ $^
-
 all : libdfile.so dfile.dll
-gpl : libdfile.a dfile.lib
 
 clean :
-	-\rm -f $(OBJ) dfile.a $(WIN_OBJ) dfile.lib dfile.dll libdfile.so a.out a.exe $(DEP)
+	-\rm -f $(OBJ) libdfile.a $(WIN_OBJ) dfile.lib dfile.dll libdfile.so a.out a.exe $(DEP)
 
 -include $(DEP)

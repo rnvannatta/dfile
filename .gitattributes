@@ -1,2 +1,2 @@
-dragonbox.inl linguist-vendored
-fast_float/** linguist-vendored
+src/dragonbox.inl linguist-vendored
+src/fast_float/** linguist-vendored
