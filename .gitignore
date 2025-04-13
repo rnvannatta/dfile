@@ -18,5 +18,8 @@ a.out
 *.lib
 core
 .gdb_history
+*.js
+*.wasm
+*.html
 
 !demos/pong/SDL2.dll

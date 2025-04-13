@@ -18,7 +18,7 @@
  *
  * If not, see <https://www.gnu.org/licenses/>.
  */
-#ifdef __linux__
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <pthread.h>
@@ -177,10 +177,10 @@ typedef struct STRPAGE {
 
 enum { DFILE_UNGETS = 8 };
 typedef struct DFILE_TAIL {
-#ifdef __linux__
-  pthread_mutex_t lock;
-#else
+#ifdef _WIN64
   CRITICAL_SECTION lock;
+#else
+  pthread_mutex_t lock;
 #endif
   DFILE * prev;
   DFILE * next;
@@ -209,12 +209,11 @@ typedef struct DFILE {
     void * cookie;
   };
   d_cookie_io_functions_t funcs;
-#ifdef __linux__
-  pid_t process;
-#endif
 #ifdef _WIN64
   HANDLE process;
   HANDLE thread;
+#else
+  pid_t process;
 #endif
   DFILE_TAIL tail[];
 } DFILE;
@@ -278,17 +277,17 @@ DFILE_STORAGE dstderr_impl = {
 
 static DFILE_TAIL dlist_mutex;
 static void d_locklist() {
-#ifdef __linux__
-  pthread_mutex_lock(&dlist_mutex.lock);
-#else
+#ifdef _WIN64
   EnterCriticalSection(&dlist_mutex.lock);
+#else
+  pthread_mutex_lock(&dlist_mutex.lock);
 #endif
 }
 static void d_unlocklist() {
-#ifdef __linux__
-  pthread_mutex_unlock(&dlist_mutex.lock);
-#else
+#ifdef _WIN64
   LeaveCriticalSection(&dlist_mutex.lock);
+#else
+  pthread_mutex_unlock(&dlist_mutex.lock);
 #endif
 }
 
@@ -362,22 +361,22 @@ static int flush_dfile_list(bool linebuf_only) {
   return ret;
 }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__EMSCRIPTEN__)
 static pthread_mutexattr_t recursive_attr;
 #endif
 static void init_dfile_lock(DFILE_TAIL * tail) {
-#ifdef __linux__
-  pthread_mutex_init(&tail->lock, &recursive_attr);
-#else
+#ifdef _WIN64
   InitializeCriticalSectionAndSpinCount(&tail->lock, 32);
+#else
+  pthread_mutex_init(&tail->lock, &recursive_attr);
 #endif
 }
 static int destroy_dfile_lock(DFILE_TAIL * tail) {
-#ifdef __linux__
-  return pthread_mutex_destroy(&tail->lock);
-#else
+#ifdef _WIN64
   DeleteCriticalSection(&tail->lock);
   return 0;
+#else
+  return pthread_mutex_destroy(&tail->lock);
 #endif
 }
 
@@ -1012,10 +1011,12 @@ static DFILE * d_tmpfile_impl(DFILE * f) {
   int fd = _open_osfhandle((intptr_t)h, O_RDWR);
   if(fd == -1)
     return NULL;
-#endif
-#ifdef __linux__
+#elif defined(__linux__)
   int fd = open("/tmp", O_TMPFILE | O_RDWR, 0666);
   if(fd < 0) return NULL;
+#else
+  int fd = 0;
+  return NULL;
 #endif
   return d_fdopen_impl(fd, "r+", f);
 }
@@ -1824,25 +1825,25 @@ failure:
 }
 
 void d_flockfile(DFILE * f) {
-#ifdef __linux__
-  pthread_mutex_lock(&f->tail[0].lock);
-#else
+#ifdef _WIN64
   EnterCriticalSection(&f->tail[0].lock);
+#else
+  pthread_mutex_lock(&f->tail[0].lock);
 #endif
 }
 int d_ftrylockfile(DFILE * f) {
-#ifdef __linux__
-  return pthread_mutex_trylock(&f->tail[0].lock) ? -1 : 0;
-#else
+#ifdef _WIN64
   // wat.
   return TryEnterCriticalSection(&f->tail[0].lock) ? 0 : -1;
+#else
+  return pthread_mutex_trylock(&f->tail[0].lock) ? -1 : 0;
 #endif
 }
 void d_funlockfile(DFILE * f) {
-#ifdef __linux__
-  pthread_mutex_unlock(&f->tail[0].lock);
-#else
+#ifdef _WIN64
   LeaveCriticalSection(&f->tail[0].lock);
+#else
+  pthread_mutex_unlock(&f->tail[0].lock);
 #endif
 }
 

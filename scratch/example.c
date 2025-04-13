@@ -14,6 +14,7 @@ int main() {
     char * msg = "Hello, fwrite!\n";
     d_fwrite(msg, strlen(msg), dstdout);
   }
+#ifndef __EMSCRIPTEN__
   {
     DFILE * fi = d_fopen("testfile", "r");
     char buf[256];
@@ -22,6 +23,7 @@ int main() {
     d_fputs(buf, dstdout);
     assert(!d_fclose(fi));
   }
+#endif
   {
     char buf[32];
     d_ungetc('\n', dstdin);
@@ -29,6 +31,7 @@ int main() {
     d_fgets(buf, sizeof buf, dstdin);
     d_fputs(buf, dstdout);
   }
+#ifndef __EMSCRIPTEN__
   {
     DFILE * f = d_tmpfile();
     char * msg = "ello, Tempfiles?";
@@ -45,6 +48,7 @@ int main() {
     d_puts(buf);
     assert(!d_fclose(f));
   }
+#endif
   {
     DFILE * f = d_strfile();
     char * msg = "Hello, Strings!";
@@ -69,6 +73,7 @@ int main() {
     d_puts(buf2);
     assert(!d_fclose(f));
   }
+#ifndef __EMSCRIPTEN__
   {
 #ifdef _WIN64
     DFILE * f = d_popen("dir", "r");
@@ -91,6 +96,7 @@ int main() {
     if(d_pclose(f))
       return -1;
   }
+#endif
 
   {
     d_printf("Hell%c, %s!\n", 'o', "printf");
@@ -237,6 +243,6 @@ int main() {
   d_fputs("this should show up\nbut not\nthis", dstdout);
   // fast exit to stop the this from flushing. change to exit(0) to validate
   // flush on exit
-  *(char*)NULL = 0;
+  *(volatile char*)NULL = 0;
   //_exit(0);
 }

@@ -151,7 +151,7 @@ static int scan_string(DFILE * f, print_specifier specifier, va_list* args, int 
   return eof && !any ? -1 : any;
 }
 
-static uint64_t write_signed_int(void * dst, int sign, uint64_t u, print_specifier specifier) {
+static void write_signed_int(void * dst, int sign, uint64_t u, print_specifier specifier) {
   switch(specifier.kind_width) {
     case PRINT_SHORTSHORT:
       *(signed char*)dst = sign*u;
@@ -211,7 +211,7 @@ static uint64_t write_signed_int(void * dst, int sign, uint64_t u, print_specifi
       break;
   }
 }
-static uint64_t write_unsigned_int(void * dst, int sign, uint64_t u, print_specifier specifier) {
+static void write_unsigned_int(void * dst, int sign, uint64_t u, print_specifier specifier) {
   switch(specifier.kind_width) {
     case PRINT_SHORTSHORT:
       *(unsigned char*)dst = sign*u;
@@ -633,10 +633,12 @@ int hex_from_chars(char const * buf, char const * end, double * d) {
     exp *= expsign;
   }
 finish:
-  double mantd = mant;
-  double mult = exp2i(decimal + exp);
-  *d = sign * mantd * mult;
-  return 1;
+  {
+    double mantd = mant;
+    double mult = exp2i(decimal + exp);
+    *d = sign * mantd * mult;
+    return 1;
+  }
 }
 int hex_from_charsf(char const * buf, char const * end, float * f) {
   double d;
@@ -808,7 +810,7 @@ static int scan_format(DFILE * f, char const ** pfmt, va_list* args, int *fields
   }
 }
 
-#ifdef _WIN64
+#if defined(_WIN64) || defined(__EMSCRIPTEN__)
 #define VA_POINTER(x) (&x)
 #else
 #define VA_POINTER(x) ((va_list*)x)

@@ -1008,7 +1008,7 @@ static int print_format(DFILE * f, char const ** pfmt, va_list* args, int nchars
   }
 }
 
-#ifdef _WIN64
+#if defined(_WIN64) || defined(__EMSCRIPTEN__)
 #define VA_POINTER(x) (&x)
 #else
 #define VA_POINTER(x) ((va_list*)x)
